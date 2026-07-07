@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Job Application Tracker — Dashboard</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --panel: #ffffff;
+      --text: #1a1a1a;
+      --muted: #666;
+      --border: #dfe3e8;
+      --stripe: #f7f8fa;
+      --hover: #eef2ff;
+      --accent: #2563eb;
+      --accent-text: #ffffff;
+      --good: #16a34a;
+      --bad: #dc2626;
+      --review-bg: #fffbeb;
+      --review-border: #f2c94c;
+      --input-bg: #ffffff;
+    }
+    html[data-theme="dark"] {
+      --bg: #14161a;
+      --panel: #1c1f26;
+      --text: #e7e9ee;
+      --muted: #9aa2af;
+      --border: #2c3038;
+      --stripe: #1a1d24;
+      --hover: #232a3d;
+      --accent: #3b82f6;
+      --accent-text: #ffffff;
+      --good: #4ade80;
+      --bad: #f87171;
+      --review-bg: #26240f;
+      --review-border: #6b5b12;
+      --input-bg: #20232b;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 24px 32px 48px;
+      color: var(--text);
+      background: var(--bg);
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 4px;
+    }
+    h1 { font-size: 19px; margin: 0; flex: 1; }
+    #themeToggle {
+      font-size: 13px;
+      padding: 6px 12px;
+      border-radius: 999px;
+    }
+
+    #status {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 20px;
+    }
+    #status .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--good);
+      margin-right: 6px;
+    }
+
+    #connectPanel {
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      padding: 28px;
+      color: var(--muted);
+      max-width: 480px;
+      background: var(--panel);
+    }
+    #connectPanel p { margin-top: 0; }
+    #connectPanel button { margin: 6px 6px 0 0; }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin-bottom: 20px;
+    }
+    .panel-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel-title .count {
+      background: var(--review-border);
+      color: #3a2f00;
+      border-radius: 999px;
+      font-size: 11px;
+      padding: 1px 8px;
+      font-weight: 700;
+    }
+    html[data-theme="dark"] .panel-title .count { color: #1a1500; }
+
+    #reviewPanel {
+      background: var(--review-bg);
+      border: 1px solid var(--review-border);
+    }
+    .review-card {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--review-border);
+      font-size: 13px;
+    }
+    .review-card:last-child { border-bottom: none; }
+    .review-card .fields { flex: 1; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+    .review-card input[type="text"] {
+      width: 100%;
+      font-size: 12px;
+      padding: 4px 6px;
+    }
+    .review-card .site-tag {
+      text-transform: uppercase;
+      font-size: 10px;
+      color: var(--muted);
+      min-width: 64px;
+      padding-top: 6px;
+    }
+    .review-card .review-actions { display: flex; gap: 6px; padding-top: 2px; }
+    .review-card a { color: var(--accent); font-size: 11px; display: block; margin-top: 2px; }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    input[type="text"] {
+      font-size: 13px;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      min-width: 220px;
+      background: var(--input-bg);
+      color: var(--text);
+    }
+    button {
+      font-size: 13px;
+      padding: 7px 13px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--text);
+      cursor: pointer;
+    }
+    button:hover { background: var(--hover); }
+    button.primary {
+      background: var(--accent);
+      color: var(--accent-text);
+      border-color: var(--accent);
+    }
+    button.primary:hover { filter: brightness(1.08); }
+    button.good { color: var(--good); border-color: var(--good); }
+    button.danger { color: var(--bad); border-color: var(--bad); }
+    .spacer { flex: 1; }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 13px;
+      background: var(--panel);
+    }
+    thead th {
+      position: sticky;
+      top: 0;
+      background: var(--panel);
+      border-bottom: 2px solid var(--border);
+      text-align: left;
+      padding: 9px 10px;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    thead th:hover { color: var(--accent); }
+    tbody tr:nth-child(even) { background: var(--stripe); }
+    tbody tr:hover { background: var(--hover); }
+    tbody td {
+      border-bottom: 1px solid var(--border);
+      padding: 8px 10px;
+      vertical-align: top;
+      max-width: 260px;
+    }
+    td[contenteditable="true"] { outline: none; border-radius: 4px; }
+    td[contenteditable="true"]:focus { background: var(--hover); box-shadow: inset 0 0 0 1px var(--accent); }
+    td.url a {
+      color: var(--accent);
+      text-decoration: none;
+      display: inline-block;
+      max-width: 220px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      vertical-align: bottom;
+    }
+    td.site { text-transform: uppercase; font-size: 11px; color: var(--muted); }
+    td.actions button { font-size: 11px; padding: 3px 9px; }
+    .empty { color: var(--muted); padding: 30px; text-align: center; }
+    #tableWrap { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Job Application Tracker</h1>
+    <button id="themeToggle">🌙 Dark mode</button>
+  </header>
+  <div id="status"><span class="dot"></span>Not connected</div>
+
+  <div id="connectPanel">
+    <p>Connect this dashboard to your <code>jobs.db</code> file. Your browser will remember this
+    choice, so you only need to do this once.</p>
+    <button id="openExistingBtn" class="primary">Open existing jobs.db</button>
+    <button id="createNewBtn">Create new jobs.db</button>
+  </div>
+
+  <div id="appPanel" style="display:none;">
+    <div id="reviewPanel" class="panel" style="display:none;">
+      <div class="panel-title">Needs review <span class="count" id="reviewCount">0</span></div>
+      <div id="reviewList"></div>
+    </div>
+
+    <div class="toolbar">
+      <input type="text" id="searchInput" placeholder="Search title, company, location..." />
+      <button id="addRowBtn">+ Add row</button>
+      <button id="syncBtn">Sync now</button>
+      <span class="spacer"></span>
+      <span id="rowCount" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div id="tableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th data-key="applied_at">Applied</th>
+            <th data-key="site">Site</th>
+            <th data-key="job_title">Title</th>
+            <th data-key="company">Company</th>
+            <th data-key="location">Location</th>
+            <th data-key="work_mode">Work mode</th>
+            <th data-key="employment_type">Type</th>
+            <th data-key="level">Level</th>
+            <th data-key="term">Term</th>
+            <th data-key="url">Link</th>
+            <th data-key="notes">Notes</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+      <div id="emptyState" class="empty" style="display:none;">No confirmed applications yet.</div>
+    </div>
+  </div>
+
+  <script src="vendor/sql-wasm.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

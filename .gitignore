@@ -1,0 +1,15 @@
+# Your personal application data — don't share this
+jobs.db
+jobs.db-journal
+jobs.db-wal
+jobs.db-shm
+
+# Old export/backup files from the manual (non-dashboard) workflow
+job-tracker-export-*.json
+
+# OS cruft
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
