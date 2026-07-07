@@ -7,6 +7,10 @@ directly on disk, laid out like a spreadsheet. No terminal needed day to day.
 The Dashboard also tracks each application's status (Applied → Interviewing →
 Offer/Rejected/Ghosted) and has a Stats view for a quick read on your pipeline.
 
+**Just want to install it, not read about how it works?** → **[Getting
+Started guide](GETTING_STARTED.md)** — download, install, and connect in
+about 5 minutes, no technical background needed.
+
 ## How it works
 
 1. A Chrome extension watches for clicks on anything that looks like an
@@ -163,20 +167,28 @@ auto-sync also only happens while the Dashboard tab is open somewhere
 
 ## Sharing with friends
 
-Since there's no AI/API key involved, sharing this with 2-3 friends is
-simple — nobody needs an account, key, or shared backend:
+Since there's no AI/API key involved, sharing this with a few friends or
+family is simple — nobody needs an account, key, or shared backend:
+
+1. **Just point them at the [Getting Started guide](GETTING_STARTED.md)** —
+   it links straight to the [latest release](../../releases/latest), where
+   they can download a ready-to-use zip and follow plain-language,
+   non-technical steps. This is the easiest path and the one to default to.
+2. Everyone's data stays local to their own machine — there's no shared
+   database or server, so nobody sees anyone else's applications. Each
+   person's resume (if they use the Resume tools) also stays local to their
+   own browser.
+
+### Cutting a new release (for whoever maintains this)
 
 1. Run `python3 scripts/package_extension.py` to build a versioned zip (e.g.
-   `job-tracker-extension-v1.1.0.zip`) — an easier handoff than sharing the
-   whole project folder. Re-run it any time you've made changes; the version
-   number comes straight from `extension/manifest.json`.
-2. Send that one zip. Each friend unzips it, does their own **Load
-   unpacked** in `chrome://extensions` (Setup section above) and their own
-   **Create new jobs.db** in the Dashboard the first time.
-3. Everyone's data stays local to their own machine — there's no shared
-   database or server, so nobody sees anyone else's applications.
-4. Each person's resume (if they use the Resume tools) also stays local to
-   their own browser.
+   `job-tracker-extension-v1.1.0.zip`) from the current `extension/` folder —
+   the version comes straight from `extension/manifest.json`, so bump that
+   first if this is a new version.
+2. Create a GitHub Release (Releases → Draft a new release), tag it to match
+   the version (e.g. `v1.1.0`), and attach the zip as an asset. The Getting
+   Started guide's download link always points at whatever release is
+   marked "latest," so nothing else needs to change.
 
 If you want easier installs later (skipping "Developer mode" and Load
 Unpacked), the next step up would be publishing it as an unlisted Chrome
