@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "static-preview",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8743"],
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd '/Users/nathanrodriguez/Desktop/Job-Tracking-Aid' && exec python3 -m http.server 8743"],
       "port": 8743
     }
   ]

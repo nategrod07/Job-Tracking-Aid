@@ -371,11 +371,33 @@ function linesNear(container) {
 // again, and tell you to refresh the page instead of spamming the console.
 let contextInvalid = false;
 
+// Some "Apply" buttons (particularly ones that hand off to an external
+// application system) aren't real <button>/<a> elements or ARIA
+// button/link roles — just a styled <div>/<span> with a click handler.
+// findApplyTarget() falls back to a short, bounded climb from the exact
+// clicked element, checking each level's own text. It's capped at a few
+// levels and a short text length specifically so it can't accidentally
+// sweep in unrelated text from a large ancestor container the way an
+// unbounded search would — this is a narrower, lower-risk check than the
+// primary selector-based path above it, not a replacement for it.
+function findApplyTarget(clicked) {
+  const primary = clicked.closest('button, a, [role="button"], [role="link"], [role="menuitem"], input[type="submit"], input[type="button"]');
+  if (primary) return primary;
+
+  let el = clicked;
+  for (let i = 0; i < 3 && el && el.nodeType === 1; i++) {
+    const text = el.innerText || el.getAttribute('aria-label') || el.textContent || '';
+    if (text.length > 0 && text.length < 200 && isApplyButtonText(text)) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
 function attachApplyListener(siteName) {
   document.addEventListener('click', (e) => {
     if (contextInvalid) return;
 
-    const target = e.target.closest('button, a, [role="button"], [role="link"]');
+    const target = findApplyTarget(e.target);
     if (!target) return;
     const text = target.innerText || target.getAttribute('aria-label') || target.textContent || '';
     if (!isApplyButtonText(text)) return;

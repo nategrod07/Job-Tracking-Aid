@@ -23,6 +23,17 @@ CREATE TABLE IF NOT EXISTS applications (
 `;
 
 const STATUS_VALUES = ['Applied', 'Interviewing', 'Offer', 'Rejected', 'Ghosted'];
+const TERMINAL_STATUSES = new Set(['Offer', 'Rejected']);
+
+// A follow-up is "due" once its date has passed and the application isn't
+// already resolved (Offer/Rejected) — no point nudging about a closed loop.
+function isFollowUpDue(row) {
+  if (!row.follow_up_date || TERMINAL_STATUSES.has(row.status)) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(row.follow_up_date + 'T00:00:00');
+  return !isNaN(due) && due <= today;
+}
 
 let SQL = null;
 let db = null;
@@ -38,12 +49,17 @@ const kpiRow = document.getElementById('kpiRow');
 const kpiTotal = document.getElementById('kpiTotal');
 const kpiWeek = document.getElementById('kpiWeek');
 const kpiTopSite = document.getElementById('kpiTopSite');
+const kpiFollowUp = document.getElementById('kpiFollowUp');
+const filterStatus = document.getElementById('filterStatus');
+const filterSite = document.getElementById('filterSite');
+const exportCsvBtn = document.getElementById('exportCsvBtn');
 const applicationsView = document.getElementById('applicationsView');
 const statsView = document.getElementById('statsView');
 const weeklyChart = document.getElementById('weeklyChart');
 const statusDonut = document.getElementById('statusDonut');
 const siteBars = document.getElementById('siteBars');
 const workModeBars = document.getElementById('workModeBars');
+const skillGapPanel = document.getElementById('skillGapPanel');
 const tableBody = document.getElementById('tableBody');
 const emptyState = document.getElementById('emptyState');
 const rowCountEl = document.getElementById('rowCount');
@@ -257,7 +273,7 @@ function migrateSchema() {
     db.run('ALTER TABLE applications ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 1');
   }
   const isNewColumn = {};
-  for (const col of ['work_mode', 'employment_type', 'level', 'term', 'description', 'status']) {
+  for (const col of ['work_mode', 'employment_type', 'level', 'term', 'description', 'status', 'tags', 'follow_up_date']) {
     if (!cols.includes(col)) {
       db.run(`ALTER TABLE applications ADD COLUMN ${col} TEXT`);
       isNewColumn[col] = true;
@@ -368,6 +384,7 @@ function refreshRows() {
 function render() {
   const confirmed = rows.filter((r) => r.reviewed);
   renderKpis(confirmed);
+  refreshSiteFilterOptions(confirmed);
   renderReview();
   renderTable();
   if (currentView === 'stats') renderStats(confirmed);
@@ -407,6 +424,8 @@ function renderKpis(confirmed) {
   for (const r of confirmed) siteCounts[r.site] = (siteCounts[r.site] || 0) + 1;
   const topSite = Object.entries(siteCounts).sort((a, b) => b[1] - a[1])[0];
   kpiTopSite.textContent = topSite ? topSite[0] : '—';
+
+  kpiFollowUp.textContent = confirmed.filter(isFollowUpDue).length;
 }
 
 function renderStats(confirmed) {
@@ -414,6 +433,52 @@ function renderStats(confirmed) {
   renderStatusDonut(confirmed);
   renderBreakdownBars(siteBars, confirmed, 'site');
   renderBreakdownBars(workModeBars, confirmed, 'work_mode');
+  renderSkillGapPanel(confirmed);
+}
+
+// Aggregates matchKeywords()'s "missing" list across every application with
+// a captured description, so a skill that keeps showing up as a gap across
+// many different postings — not just one — surfaces as worth actually
+// building, not just noting once and forgetting.
+function renderSkillGapPanel(confirmed) {
+  const resumeText = getResumeText();
+  const withDescriptions = confirmed.filter((r) => r.description);
+
+  if (!resumeText) {
+    skillGapPanel.innerHTML = '<div class="chart-empty">Add your resume (📄 Resume, above) to see skill gaps across all your applications.</div>';
+    return;
+  }
+  if (withDescriptions.length === 0) {
+    skillGapPanel.innerHTML = '<div class="chart-empty">No captured job descriptions yet.</div>';
+    return;
+  }
+
+  const counts = {};
+  for (const r of withDescriptions) {
+    const match = matchKeywords(r.description, resumeText);
+    for (const m of match.missing) {
+      counts[m.keyword] = (counts[m.keyword] || 0) + 1;
+    }
+  }
+
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  if (entries.length === 0) {
+    skillGapPanel.innerHTML = '<div class="chart-empty">No recurring gaps across your applications — nice work.</div>';
+    return;
+  }
+
+  const max = Math.max(1, ...entries.map(([, c]) => c));
+  const countLabel = `Across ${withDescriptions.length} application${withDescriptions.length === 1 ? '' : 's'} with a captured description`;
+  skillGapPanel.innerHTML = `
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">${escapeHtml(countLabel)}</div>
+    ${entries.map(([label, count]) => `
+      <div class="bar-row">
+        <div class="bar-row-label" title="${escapeHtml(label)}">${escapeHtml(label)}</div>
+        <div class="bar-row-track"><div class="bar-row-fill" style="width:${(count / max) * 100}%"></div></div>
+        <div class="bar-row-value">${count}</div>
+      </div>
+    `).join('')}
+  `;
 }
 
 function startOfWeek(date) {
@@ -573,22 +638,34 @@ reviewList.addEventListener('click', async (e) => {
   refreshRows();
 });
 
-function renderTable() {
+// Shared by renderTable() (what's on screen) and CSV export (what gets
+// downloaded) so the two can never drift out of sync with each other.
+function getVisibleRows() {
   const confirmed = rows.filter((r) => r.reviewed);
   const q = searchInput.value.trim().toLowerCase();
+  const statusFilter = filterStatus.value;
+  const siteFilter = filterSite.value;
+
   let visible = confirmed;
   if (q) {
-    visible = confirmed.filter((r) =>
-      [r.job_title, r.company, r.location, r.site].some((f) => (f || '').toLowerCase().includes(q))
+    visible = visible.filter((r) =>
+      [r.job_title, r.company, r.location, r.site, r.tags].some((f) => (f || '').toLowerCase().includes(q))
     );
   }
+  if (statusFilter) visible = visible.filter((r) => (r.status || 'Applied') === statusFilter);
+  if (siteFilter) visible = visible.filter((r) => r.site === siteFilter);
 
-  visible = [...visible].sort((a, b) => {
+  return [...visible].sort((a, b) => {
     const av = (a[sortKey] ?? '').toString();
     const bv = (b[sortKey] ?? '').toString();
     const cmp = av.localeCompare(bv, undefined, { numeric: true });
     return sortDir === 'asc' ? cmp : -cmp;
   });
+}
+
+function renderTable() {
+  const confirmed = rows.filter((r) => r.reviewed);
+  const visible = getVisibleRows();
 
   rowCountEl.textContent = `${visible.length} of ${confirmed.length} application${confirmed.length === 1 ? '' : 's'}`;
   emptyState.style.display = confirmed.length === 0 ? 'block' : 'none';
@@ -612,6 +689,10 @@ function renderTable() {
       <td contenteditable="true" data-field="employment_type">${escapeHtml(r.employment_type)}</td>
       <td contenteditable="true" data-field="level">${escapeHtml(r.level)}</td>
       <td contenteditable="true" data-field="term">${escapeHtml(r.term)}</td>
+      <td contenteditable="true" data-field="tags" placeholder="e.g. referral, dream job">${escapeHtml(r.tags)}</td>
+      <td class="follow-up-cell${isFollowUpDue(r) ? ' overdue' : ''}">
+        <input type="date" data-field="follow_up_date" value="${escapeAttr(r.follow_up_date || '')}" />
+      </td>
       <td class="url"><a href="${r.url}" target="_blank" title="${escapeHtml(r.url)}">${escapeHtml(r.url)}</a></td>
       <td contenteditable="true" data-field="notes">${escapeHtml(r.notes)}</td>
       <td class="actions">
@@ -621,6 +702,16 @@ function renderTable() {
     `;
     tableBody.appendChild(tr);
   }
+}
+
+// Keeps the site filter's options in sync with whatever sites actually
+// appear in the data (covers "manual" rows, not just the three built-in
+// capture sites) without hardcoding a list that could drift.
+function refreshSiteFilterOptions(confirmed) {
+  const sites = [...new Set(confirmed.map((r) => r.site).filter(Boolean))].sort();
+  const current = filterSite.value;
+  filterSite.innerHTML = '<option value="">All sites</option>' + sites.map((s) => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join('');
+  if (sites.includes(current)) filterSite.value = current;
 }
 
 function escapeHtml(v) {
@@ -664,13 +755,17 @@ tableBody.addEventListener('click', async (e) => {
 });
 
 tableBody.addEventListener('change', async (e) => {
-  if (e.target.dataset.field !== 'status') return;
+  const field = e.target.dataset.field;
+  if (field !== 'status' && field !== 'follow_up_date') return;
   const tr = e.target.closest('tr');
   const id = tr.dataset.id;
-  db.run('UPDATE applications SET status = ? WHERE id = ?', [e.target.value, id]);
+  db.run(`UPDATE applications SET ${field} = ? WHERE id = ?`, [e.target.value, id]);
   await persist();
   refreshRows();
 });
+
+filterStatus.addEventListener('change', renderTable);
+filterSite.addEventListener('change', renderTable);
 
 document.querySelectorAll('thead th[data-key]').forEach((th) => {
   th.addEventListener('click', () => {
@@ -697,6 +792,42 @@ document.getElementById('syncBtn').addEventListener('click', async () => {
   await mergePending();
   refreshRows();
 });
+
+// ---------- CSV export ----------
+
+const CSV_COLUMNS = [
+  ['applied_at', 'Applied'], ['site', 'Site'], ['job_title', 'Title'], ['company', 'Company'],
+  ['location', 'Location'], ['status', 'Status'], ['work_mode', 'Work mode'], ['employment_type', 'Type'],
+  ['level', 'Level'], ['term', 'Term'], ['tags', 'Tags'], ['follow_up_date', 'Follow-up'],
+  ['url', 'Link'], ['notes', 'Notes']
+];
+
+function csvEscape(value) {
+  const s = value === null || value === undefined ? '' : String(value);
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function exportCsv(visibleRows) {
+  if (visibleRows.length === 0) {
+    notify('error', 'Nothing to export — no rows match the current search/filters.');
+    return;
+  }
+  const header = CSV_COLUMNS.map(([, label]) => csvEscape(label)).join(',');
+  const lines = visibleRows.map((r) => CSV_COLUMNS.map(([field]) => csvEscape(r[field])).join(','));
+  const csv = [header, ...lines].join('\r\n');
+
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `job-applications-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  notify('success', `Exported ${visibleRows.length} application${visibleRows.length === 1 ? '' : 's'} to CSV.`);
+}
+
+exportCsvBtn.addEventListener('click', () => exportCsv(getVisibleRows()));
 
 searchInput.addEventListener('input', renderTable);
 

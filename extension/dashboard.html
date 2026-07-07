@@ -228,6 +228,15 @@
       background: var(--input-bg);
       color: var(--text);
     }
+    .toolbar select {
+      font-size: 13px;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--input-bg);
+      color: var(--text);
+      cursor: pointer;
+    }
     button {
       font-size: 13px;
       padding: 7px 13px;
@@ -283,6 +292,18 @@
     }
     td[contenteditable="true"] { outline: none; border-radius: 4px; }
     td[contenteditable="true"]:focus { background: var(--hover); box-shadow: inset 0 0 0 1px var(--accent); }
+    td[contenteditable="true"]:empty::before { content: attr(placeholder); color: var(--muted); }
+    td.follow-up-cell input[type="date"] {
+      font-size: 12px;
+      padding: 3px 5px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--input-bg);
+      color: var(--text);
+      color-scheme: light dark;
+    }
+    td.follow-up-cell.overdue { background: rgba(220,38,38,0.08); }
+    td.follow-up-cell.overdue input[type="date"] { border-color: var(--bad); color: var(--bad); font-weight: 600; }
     td.url a {
       color: var(--accent);
       text-decoration: none;
@@ -455,6 +476,10 @@
       <div class="kpi-value" id="kpiTopSite">—</div>
       <div class="kpi-label">Most active site</div>
     </div>
+    <div class="kpi-tile">
+      <div class="kpi-value" id="kpiFollowUp">0</div>
+      <div class="kpi-label">Needs follow-up</div>
+    </div>
   </div>
 
   <div id="appPanel" style="display:none;">
@@ -470,9 +495,21 @@
       </div>
 
       <div class="toolbar">
-        <input type="text" id="searchInput" placeholder="Search title, company, location..." />
+        <input type="text" id="searchInput" placeholder="Search title, company, location, tags..." />
+        <select id="filterStatus">
+          <option value="">All statuses</option>
+          <option value="Applied">Applied</option>
+          <option value="Interviewing">Interviewing</option>
+          <option value="Offer">Offer</option>
+          <option value="Rejected">Rejected</option>
+          <option value="Ghosted">Ghosted</option>
+        </select>
+        <select id="filterSite">
+          <option value="">All sites</option>
+        </select>
         <button id="addRowBtn">+ Add row</button>
         <button id="syncBtn">Sync now</button>
+        <button id="exportCsvBtn">⬇ Export CSV</button>
         <span class="spacer"></span>
         <span id="rowCount" style="font-size:12px;color:var(--muted);"></span>
       </div>
@@ -490,6 +527,8 @@
               <th data-key="employment_type">Type</th>
               <th data-key="level">Level</th>
               <th data-key="term">Term</th>
+              <th data-key="tags">Tags</th>
+              <th data-key="follow_up_date">Follow-up</th>
               <th data-key="url">Link</th>
               <th data-key="notes">Notes</th>
               <th></th>
@@ -522,6 +561,10 @@
         <div class="panel stats-panel">
           <div class="panel-title">By work mode</div>
           <div id="workModeBars"></div>
+        </div>
+        <div class="panel stats-panel" style="grid-column: 1 / -1;">
+          <div class="panel-title">Recurring skill gaps</div>
+          <div id="skillGapPanel"></div>
         </div>
       </div>
     </div>
