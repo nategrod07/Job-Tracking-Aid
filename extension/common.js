@@ -37,7 +37,40 @@ function extractJobDetails(siteName) {
     if (!merged.extraction_method && s.extraction_method) merged.extraction_method = s.extraction_method;
   }
 
-  return { ...merged, ...extractJobMeta(jsonLdItem) };
+  return { ...merged, ...extractJobMeta(jsonLdItem), description: extractDescription(siteName, jsonLdItem) };
+}
+
+// Grabs the full job description body text — needed later for keyword
+// matching against a resume and for filling in the cover letter template.
+// JSON-LD's description field (HTML-escaped) is the most reliable source
+// when present; otherwise falls back to known per-site containers, and
+// finally to "largest text block on the page" as a last resort.
+function extractDescription(siteName, jsonLdItem) {
+  if (jsonLdItem?.description) {
+    return stripHtml(jsonLdItem.description).slice(0, 20000);
+  }
+
+  const knownSelectors = {
+    linkedin: '.jobs-description__content, .jobs-box__html-content, .jobs-description-content__text',
+    indeed: '#jobDescriptionText',
+    handshake: '[class*="description"], [data-hook*="description"]'
+  };
+  const el = document.querySelector(knownSelectors[siteName] || '');
+  if (el?.innerText?.trim()) return el.innerText.trim().slice(0, 20000);
+
+  // Last resort: the largest block of text on the page, excluding our own badge.
+  const candidates = Array.from(document.querySelectorAll('article, section, div'))
+    .filter((n) => n.id !== '__job-tracker-badge')
+    .map((n) => n.innerText || '')
+    .filter((t) => t.length > 200);
+  if (candidates.length === 0) return null;
+  return candidates.reduce((a, b) => (b.length > a.length ? b : a)).slice(0, 20000);
+}
+
+function stripHtml(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return (tmp.textContent || tmp.innerText || '').trim();
 }
 
 function findJsonLdJobPosting() {
@@ -285,7 +318,8 @@ function attachApplyListener(siteName) {
         work_mode: details.work_mode,
         employment_type: details.employment_type,
         level: details.level,
-        term: details.term
+        term: details.term,
+        description: details.description
       });
       flashBadge(details.job_title, details.company);
     } catch (err) {

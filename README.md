@@ -26,6 +26,41 @@ directly on disk, laid out like a spreadsheet. No terminal needed day to day.
    (moves it into the main table), or **✗ Not this** to discard a mis-click.
    This is also where you'd catch a false positive from an oddly-labeled
    button. Confirmed rows are the only ones that count toward your tracker.
+5. Each capture also auto-tags **work mode** (Remote/Hybrid/On-site),
+   **employment type** (Full-time/Part-time/Internship/Contract), **level**
+   (Intern/New Grad/Entry Level), and **term** (e.g. "Fall 2026") by reading
+   structured job data where available and scanning the page text otherwise.
+   These are guesses — fix them in the review panel or the main table if
+   they're wrong.
+
+## Resume tools (cover letters & keyword matching)
+
+This is intentionally **not AI-generated** — no API keys, no cost, nothing
+sent anywhere. It's deterministic text matching plus a fill-in-the-blank
+template:
+
+1. Click **📄 Resume** in the Dashboard header. Upload a PDF (parsed
+   in-browser) or just paste your resume text in directly, then **Save**.
+   It's stored only in this browser's local storage — never uploaded
+   anywhere.
+2. On any confirmed row, click **📝 tools**. This shows:
+   - Which keywords from that job's captured description already appear in
+     your resume ("Already on your resume") versus ones that don't
+     ("Consider adding") — matched against a built-in list of common
+     tech/soft skills plus repeated capitalized terms in the posting (to
+     catch specific tools/products the built-in list doesn't know about).
+   - A cover letter **draft**, pre-filled with the job title/company/matched
+     skills. Bracketed sections like `[Add 1-2 sentences about...]` are
+     prompts for you to fill in with real specifics — this is a skeleton to
+     edit, not a finished letter. **Copy to clipboard** when you're happy
+     with it.
+3. If a job has no captured description (rare, but possible if extraction
+   failed on that page), keyword matching is skipped but the cover letter
+   draft still works off the job title/company you have on file.
+
+Because this is template-based rather than AI-written, quality depends on
+how much you customize the bracketed prompts — treat it as a fast starting
+draft, not a final letter.
 
 ## Setup
 
@@ -76,6 +111,26 @@ auto-sync also only happens while the Dashboard tab is open somewhere
 (background tabs are fine, closed windows are not); otherwise click
 **Sync now** when you next open it.
 
+## Sharing with friends
+
+Since there's no AI/API key involved, sharing this with 2-3 friends is
+simple — nobody needs an account, key, or shared backend:
+
+1. Share the whole project folder (or just zip the `extension/` folder).
+2. Each friend does their own **Load unpacked** in `chrome://extensions`
+   (Setup section above) and their own **Create new jobs.db** in the
+   Dashboard the first time.
+3. Everyone's data stays local to their own machine — there's no shared
+   database or server, so nobody sees anyone else's applications.
+4. Each person's resume (if they use the Resume tools) also stays local to
+   their own browser.
+
+If you want easier installs later (skipping "Developer mode" and Load
+Unpacked), the next step up would be publishing it as an unlisted Chrome
+Web Store item — that costs a one-time $5 developer registration fee and
+goes through Google's review process. Worth considering only if 2-3 friends
+grows into something bigger.
+
 ## Known limitations
 
 - **Indeed off-site redirects**: many Indeed listings send you to the
@@ -97,3 +152,9 @@ auto-sync also only happens while the Dashboard tab is open somewhere
 - **No account/company enrichment**: this stores exactly what's visible on
   the page. Anything richer (parsed salary bands, remote/hybrid tags,
   seniority) would need extra extraction logic per site.
+- **Keyword matching is naive**: it's substring/word matching against a
+  fixed skill list plus repeated capitalized terms, not real language
+  understanding — it won't catch paraphrased skills (e.g. "led a team" vs
+  "Leadership") and can occasionally flag irrelevant capitalized words.
+  Treat the "Consider adding" list as a prompt to double check, not a
+  strict requirement.

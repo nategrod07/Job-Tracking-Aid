@@ -26,6 +26,7 @@ chrome.runtime.onMessage.addListener((msg) => {
       employment_type: msg.employment_type || null,
       level: msg.level || null,
       term: msg.term || null,
+      description: msg.description || null,
       applied_at: new Date(now).toISOString(),
       notes: ''
     };

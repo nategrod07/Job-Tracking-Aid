@@ -221,11 +221,69 @@
     td.actions button { font-size: 11px; padding: 3px 9px; }
     .empty { color: var(--muted); padding: 30px; text-align: center; }
     #tableWrap { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 1000;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 40px 20px;
+      overflow-y: auto;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px 26px;
+      width: 100%;
+      max-width: 640px;
+      max-height: calc(100vh - 80px);
+      overflow-y: auto;
+    }
+    .modal h2 { font-size: 16px; margin: 0 0 4px 0; }
+    .modal .subtitle { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+    .modal-close-row { display: flex; justify-content: flex-end; margin-top: 16px; gap: 8px; }
+    .modal textarea {
+      width: 100%;
+      font-size: 13px;
+      font-family: inherit;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--input-bg);
+      color: var(--text);
+      resize: vertical;
+    }
+    .kw-columns { display: flex; gap: 20px; margin: 14px 0; }
+    .kw-columns > div { flex: 1; }
+    .kw-columns h3 { font-size: 12px; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
+    .kw-chip {
+      display: inline-block;
+      font-size: 12px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      margin: 0 6px 6px 0;
+    }
+    .kw-chip.present { background: rgba(22,163,74,0.15); color: var(--good); }
+    .kw-chip.missing { background: rgba(220,38,38,0.12); color: var(--bad); }
+    .no-resume-note {
+      background: var(--review-bg);
+      border: 1px solid var(--review-border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+      margin-bottom: 14px;
+    }
   </style>
 </head>
 <body>
   <header>
     <h1>Job Application Tracker</h1>
+    <button id="resumeBtn">📄 Resume</button>
     <button id="themeToggle">🌙 Dark mode</button>
   </header>
   <div id="status"><span class="dot"></span>Not connected</div>
@@ -274,7 +332,64 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="resumeModal">
+    <div class="modal">
+      <h2>Your resume</h2>
+      <div class="subtitle">
+        Stored only in this browser (localStorage) — never uploaded anywhere. Used to compare against
+        job descriptions for keyword matching and to fill in the cover letter template.
+      </div>
+      <input type="file" id="resumeFileInput" accept="application/pdf" />
+      <p style="font-size:12px;color:var(--muted);margin:10px 0;">
+        Uploading a PDF replaces the text below. You can also just paste/edit your resume text directly.
+      </p>
+      <textarea id="resumeTextArea" rows="14" placeholder="Paste your resume text here, or upload a PDF above..."></textarea>
+      <div class="modal-close-row">
+        <button id="resumeSaveBtn" class="primary">Save</button>
+        <button id="resumeCloseBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="toolsModal">
+    <div class="modal">
+      <h2 id="toolsTitle">Job tools</h2>
+      <div class="subtitle" id="toolsSubtitle"></div>
+
+      <div id="toolsNoResume" class="no-resume-note" style="display:none;">
+        No resume loaded yet — keyword matching will show everything as "missing" and the cover letter
+        can't guess your name. <button id="toolsOpenResumeBtn">Set up your resume</button>
+      </div>
+
+      <div id="toolsNoDescription" class="no-resume-note" style="display:none;">
+        No job description was captured for this application, so keyword matching isn't available —
+        the cover letter draft below will still work with the job title/company you have on file.
+      </div>
+
+      <div class="kw-columns" id="kwColumns" style="display:none;">
+        <div>
+          <h3>Already on your resume</h3>
+          <div id="kwPresent"></div>
+        </div>
+        <div>
+          <h3>Consider adding</h3>
+          <div id="kwMissing"></div>
+        </div>
+      </div>
+
+      <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:0.03em;color:var(--muted);margin-bottom:8px;">
+        Cover letter draft (edit freely — bracketed parts are prompts, not filler)
+      </h3>
+      <textarea id="coverLetterArea" rows="14"></textarea>
+      <div class="modal-close-row">
+        <button id="coverLetterCopyBtn" class="primary">Copy to clipboard</button>
+        <button id="toolsCloseBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script src="vendor/sql-wasm.js"></script>
+  <script src="keywords.js"></script>
   <script src="dashboard.js"></script>
 </body>
 </html>

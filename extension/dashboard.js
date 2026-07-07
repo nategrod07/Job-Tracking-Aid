@@ -41,6 +41,26 @@ const reviewList = document.getElementById('reviewList');
 const reviewCountEl = document.getElementById('reviewCount');
 const themeToggle = document.getElementById('themeToggle');
 
+const resumeBtn = document.getElementById('resumeBtn');
+const resumeModal = document.getElementById('resumeModal');
+const resumeFileInput = document.getElementById('resumeFileInput');
+const resumeTextArea = document.getElementById('resumeTextArea');
+const resumeSaveBtn = document.getElementById('resumeSaveBtn');
+const resumeCloseBtn = document.getElementById('resumeCloseBtn');
+
+const toolsModal = document.getElementById('toolsModal');
+const toolsTitle = document.getElementById('toolsTitle');
+const toolsSubtitle = document.getElementById('toolsSubtitle');
+const toolsNoResume = document.getElementById('toolsNoResume');
+const toolsNoDescription = document.getElementById('toolsNoDescription');
+const toolsOpenResumeBtn = document.getElementById('toolsOpenResumeBtn');
+const kwColumns = document.getElementById('kwColumns');
+const kwPresent = document.getElementById('kwPresent');
+const kwMissing = document.getElementById('kwMissing');
+const coverLetterArea = document.getElementById('coverLetterArea');
+const coverLetterCopyBtn = document.getElementById('coverLetterCopyBtn');
+const toolsCloseBtn = document.getElementById('toolsCloseBtn');
+
 // ---------- Theme ----------
 
 function applyTheme(theme) {
@@ -180,7 +200,7 @@ function migrateSchema() {
   if (!cols.includes('reviewed')) {
     db.run('ALTER TABLE applications ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 1');
   }
-  for (const col of ['work_mode', 'employment_type', 'level', 'term']) {
+  for (const col of ['work_mode', 'employment_type', 'level', 'term', 'description']) {
     if (!cols.includes(col)) {
       db.run(`ALTER TABLE applications ADD COLUMN ${col} TEXT`);
     }
@@ -213,11 +233,11 @@ async function mergePending() {
       db.run(
         `INSERT INTO applications
          (site, job_title, company, location, url, applied_at, extraction_method, notes, imported_at,
-          work_mode, employment_type, level, term, reviewed)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+          work_mode, employment_type, level, term, description, reviewed)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
         [
           e.site, e.job_title, e.company, e.location, e.url, e.applied_at, e.extraction_method, e.notes || '', now,
-          e.work_mode || null, e.employment_type || null, e.level || null, e.term || null
+          e.work_mode || null, e.employment_type || null, e.level || null, e.term || null, e.description || null
         ]
       );
       added++;
@@ -347,7 +367,10 @@ function renderTable() {
       <td contenteditable="true" data-field="term">${escapeHtml(r.term)}</td>
       <td class="url"><a href="${r.url}" target="_blank" title="${escapeHtml(r.url)}">${escapeHtml(r.url)}</a></td>
       <td contenteditable="true" data-field="notes">${escapeHtml(r.notes)}</td>
-      <td class="actions"><button data-action="delete">delete</button></td>
+      <td class="actions">
+        <button data-action="tools">📝 tools</button>
+        <button data-action="delete">delete</button>
+      </td>
     `;
     tableBody.appendChild(tr);
   }
@@ -378,6 +401,11 @@ tableBody.addEventListener('blur', async (e) => {
 }, true);
 
 tableBody.addEventListener('click', async (e) => {
+  if (e.target.dataset.action === 'tools') {
+    const tr = e.target.closest('tr');
+    openToolsModal(tr.dataset.id);
+    return;
+  }
   if (e.target.dataset.action !== 'delete') return;
   const tr = e.target.closest('tr');
   const id = tr.dataset.id;
@@ -414,6 +442,114 @@ document.getElementById('syncBtn').addEventListener('click', async () => {
 });
 
 searchInput.addEventListener('input', renderTable);
+
+// ---------- Resume (stored in localStorage — never leaves the browser) ----------
+
+function getResumeText() {
+  return localStorage.getItem('resumeText') || '';
+}
+
+function openResumeModal() {
+  resumeTextArea.value = getResumeText();
+  resumeModal.classList.add('open');
+}
+
+function closeResumeModal() {
+  resumeModal.classList.remove('open');
+}
+
+resumeBtn.addEventListener('click', openResumeModal);
+resumeCloseBtn.addEventListener('click', closeResumeModal);
+
+resumeSaveBtn.addEventListener('click', () => {
+  localStorage.setItem('resumeText', resumeTextArea.value);
+  closeResumeModal();
+});
+
+resumeFileInput.addEventListener('change', async () => {
+  const file = resumeFileInput.files[0];
+  if (!file) return;
+  try {
+    resumeTextArea.value = 'Extracting text from PDF...';
+    const text = await extractPdfText(file);
+    resumeTextArea.value = text;
+  } catch (err) {
+    console.error(err);
+    resumeTextArea.value = '';
+    alert('Could not read that PDF. You can paste your resume text in manually instead.');
+  }
+});
+
+async function extractPdfText(file) {
+  const pdfjsLib = await import('./vendor/pdf.min.mjs');
+  pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('vendor/pdf.worker.min.mjs');
+
+  const buffer = await file.arrayBuffer();
+  const doc = await pdfjsLib.getDocument({ data: buffer }).promise;
+
+  let text = '';
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map((item) => item.str).join(' ') + '\n';
+  }
+  return text.trim();
+}
+
+// ---------- Tools modal: keyword match + cover letter draft ----------
+
+let toolsRowId = null;
+
+function openToolsModal(id) {
+  const row = rows.find((r) => String(r.id) === String(id));
+  if (!row) return;
+  toolsRowId = id;
+
+  toolsTitle.textContent = `${row.job_title || 'Job'} — ${row.company || ''}`;
+  toolsSubtitle.textContent = [row.site, row.location, row.work_mode].filter(Boolean).join(' · ');
+
+  const resumeText = getResumeText();
+  toolsNoResume.style.display = resumeText ? 'none' : 'block';
+  toolsNoDescription.style.display = row.description ? 'none' : 'block';
+
+  if (row.description) {
+    const match = matchKeywords(row.description, resumeText);
+    kwColumns.style.display = 'flex';
+    kwPresent.innerHTML = match.present.length
+      ? match.present.map((k) => `<span class="kw-chip present">${escapeHtml(k)}</span>`).join('')
+      : '<span style="color:var(--muted);font-size:12px;">None detected</span>';
+    kwMissing.innerHTML = match.missing.length
+      ? match.missing.map((k) => `<span class="kw-chip missing">${escapeHtml(k)}</span>`).join('')
+      : '<span style="color:var(--muted);font-size:12px;">None — nice work</span>';
+    coverLetterArea.value = buildCoverLetterDraft(row, resumeText, match);
+  } else {
+    kwColumns.style.display = 'none';
+    coverLetterArea.value = buildCoverLetterDraft(row, resumeText, { present: [], missing: [] });
+  }
+
+  toolsModal.classList.add('open');
+}
+
+function closeToolsModal() {
+  toolsModal.classList.remove('open');
+  toolsRowId = null;
+}
+
+toolsCloseBtn.addEventListener('click', closeToolsModal);
+toolsOpenResumeBtn.addEventListener('click', () => {
+  closeToolsModal();
+  openResumeModal();
+});
+
+coverLetterCopyBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(coverLetterArea.value);
+    coverLetterCopyBtn.textContent = 'Copied!';
+    setTimeout(() => { coverLetterCopyBtn.textContent = 'Copy to clipboard'; }, 1800);
+  } catch (err) {
+    alert('Could not copy automatically — select the text and copy manually.');
+  }
+});
 
 // ---------- Boot ----------
 
