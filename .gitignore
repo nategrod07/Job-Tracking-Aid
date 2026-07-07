@@ -7,9 +7,15 @@ jobs.db-shm
 # Old export/backup files from the manual (non-dashboard) workflow
 job-tracker-export-*.json
 
+# Packaged zips from scripts/package_extension.py — regenerate, don't commit
+job-tracker-extension-v*.zip
+
 # OS cruft
 .DS_Store
 
 # Python
 __pycache__/
 *.pyc
+
+# Personal Claude Code permissions — not shared project config
+.claude/settings.local.json
