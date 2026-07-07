@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS applications (
 );
 `;
 
+const STATUS_VALUES = ['Applied', 'Interviewing', 'Offer', 'Rejected', 'Ghosted'];
+
 let SQL = null;
 let db = null;
 let fileHandle = null;
@@ -32,6 +34,16 @@ let sortDir = 'desc';
 const statusEl = document.getElementById('status');
 const connectPanel = document.getElementById('connectPanel');
 const appPanel = document.getElementById('appPanel');
+const kpiRow = document.getElementById('kpiRow');
+const kpiTotal = document.getElementById('kpiTotal');
+const kpiWeek = document.getElementById('kpiWeek');
+const kpiTopSite = document.getElementById('kpiTopSite');
+const applicationsView = document.getElementById('applicationsView');
+const statsView = document.getElementById('statsView');
+const weeklyChart = document.getElementById('weeklyChart');
+const statusDonut = document.getElementById('statusDonut');
+const siteBars = document.getElementById('siteBars');
+const workModeBars = document.getElementById('workModeBars');
 const tableBody = document.getElementById('tableBody');
 const emptyState = document.getElementById('emptyState');
 const rowCountEl = document.getElementById('rowCount');
@@ -40,6 +52,13 @@ const reviewPanel = document.getElementById('reviewPanel');
 const reviewList = document.getElementById('reviewList');
 const reviewCountEl = document.getElementById('reviewCount');
 const themeToggle = document.getElementById('themeToggle');
+
+const toastContainer = document.getElementById('toastContainer');
+const confirmModal = document.getElementById('confirmModal');
+const confirmTitle = document.getElementById('confirmTitle');
+const confirmBody = document.getElementById('confirmBody');
+const confirmCancelBtn = document.getElementById('confirmCancelBtn');
+const confirmOkBtn = document.getElementById('confirmOkBtn');
 
 const resumeBtn = document.getElementById('resumeBtn');
 const resumeModal = document.getElementById('resumeModal');
@@ -57,6 +76,7 @@ const toolsOpenResumeBtn = document.getElementById('toolsOpenResumeBtn');
 const kwColumns = document.getElementById('kwColumns');
 const kwPresent = document.getElementById('kwPresent');
 const kwMissing = document.getElementById('kwMissing');
+const toneSelect = document.getElementById('toneSelect');
 const coverLetterArea = document.getElementById('coverLetterArea');
 const coverLetterCopyBtn = document.getElementById('coverLetterCopyBtn');
 const toolsCloseBtn = document.getElementById('toolsCloseBtn');
@@ -79,6 +99,41 @@ themeToggle.addEventListener('click', () => {
   const current = document.documentElement.getAttribute('data-theme');
   applyTheme(current === 'dark' ? 'light' : 'dark');
 });
+
+// ---------- Toasts + confirm dialog (replace native alert()/confirm()) ----------
+
+function notify(kind, message, timeout = 4500) {
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.innerHTML = `<span class="dot"></span><span class="toast-message"></span>`;
+  el.querySelector('.toast-message').textContent = message;
+  toastContainer.appendChild(el);
+  setTimeout(() => {
+    el.classList.add('leaving');
+    setTimeout(() => el.remove(), 200);
+  }, timeout);
+}
+
+let confirmResolve = null;
+
+function confirmDialog(message, { title = 'Are you sure?', okLabel = 'Confirm' } = {}) {
+  confirmTitle.textContent = title;
+  confirmBody.textContent = message;
+  confirmOkBtn.textContent = okLabel;
+  confirmModal.classList.add('open');
+  return new Promise((resolve) => { confirmResolve = resolve; });
+}
+
+function closeConfirmDialog(result) {
+  confirmModal.classList.remove('open');
+  if (confirmResolve) {
+    confirmResolve(result);
+    confirmResolve = null;
+  }
+}
+
+confirmCancelBtn.addEventListener('click', () => closeConfirmDialog(false));
+confirmOkBtn.addEventListener('click', () => closeConfirmDialog(true));
 
 // ---------- IndexedDB: remember the file handle across sessions ----------
 
@@ -181,6 +236,7 @@ async function loadFromHandle() {
 
   connectPanel.style.display = 'none';
   appPanel.style.display = 'block';
+  kpiRow.style.display = 'flex';
   setStatus(`Connected to ${fileHandle.name}`);
 
   await mergePending();
@@ -200,18 +256,32 @@ function migrateSchema() {
   if (!cols.includes('reviewed')) {
     db.run('ALTER TABLE applications ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 1');
   }
-  for (const col of ['work_mode', 'employment_type', 'level', 'term', 'description']) {
+  const isNewColumn = {};
+  for (const col of ['work_mode', 'employment_type', 'level', 'term', 'description', 'status']) {
     if (!cols.includes(col)) {
       db.run(`ALTER TABLE applications ADD COLUMN ${col} TEXT`);
+      isNewColumn[col] = true;
     }
+  }
+  // Backfill confirmed rows so pre-existing data isn't stuck with a blank status
+  // pill — everything already tracked was, at minimum, applied to.
+  if (isNewColumn.status) {
+    db.run("UPDATE applications SET status = 'Applied' WHERE reviewed = 1 AND (status IS NULL OR status = '')");
   }
 }
 
 async function persist() {
   const data = db.export();
-  const writable = await fileHandle.createWritable();
-  await writable.write(data);
-  await writable.close();
+  try {
+    const writable = await fileHandle.createWritable();
+    await writable.write(data);
+    await writable.close();
+  } catch (err) {
+    console.error('Failed to write jobs.db:', err);
+    setStatus('Could not save to jobs.db — your last change may not be on disk', 'var(--bad)');
+    notify('error', 'Could not save to jobs.db — your last change may not be on disk.');
+    throw err;
+  }
 }
 
 // ---------- Merging captures from the extension's local storage ----------
@@ -222,11 +292,20 @@ function getPending() {
   });
 }
 
+// A real INSERT failure (schema mismatch, malformed data, sql.js error) should
+// never disappear silently — only a UNIQUE-constraint hit on the url column is
+// an expected, safe-to-ignore outcome (the capture is already tracked).
+function isDuplicateUrlError(err) {
+  const msg = typeof err?.message === 'string' ? err.message : '';
+  return /UNIQUE constraint failed/i.test(msg) && /\burl\b/i.test(msg);
+}
+
 async function mergePending() {
   const pending = await getPending();
   if (pending.length === 0) return;
 
   let added = 0;
+  let failed = 0;
   const now = new Date().toISOString();
   for (const e of pending) {
     try {
@@ -242,7 +321,12 @@ async function mergePending() {
       );
       added++;
     } catch (err) {
-      // duplicate URL — already tracked, skip
+      if (isDuplicateUrlError(err)) {
+        // duplicate URL — already tracked, skip silently
+      } else {
+        failed++;
+        console.error('Failed to import a captured application:', err, e);
+      }
     }
   }
 
@@ -251,7 +335,14 @@ async function mergePending() {
 
   if (added > 0) {
     await persist();
-    setStatus(`Synced ${added} new capture${added === 1 ? '' : 's'} — waiting for review — ${new Date().toLocaleTimeString()}`);
+  }
+  if (added > 0 || failed > 0) {
+    const parts = [];
+    if (added > 0) parts.push(`Synced ${added} new capture${added === 1 ? '' : 's'} — waiting for review`);
+    if (failed > 0) parts.push(`${failed} failed to import — see console`);
+    setStatus(`${parts.join(' · ')} — ${new Date().toLocaleTimeString()}`, failed > 0 ? 'var(--bad)' : undefined);
+    if (failed > 0) notify('error', `${failed} capture${failed === 1 ? '' : 's'} failed to import — see console for details.`);
+    else if (added > 0) notify('success', `Synced ${added} new capture${added === 1 ? '' : 's'} — waiting for review.`);
   }
 }
 
@@ -275,8 +366,159 @@ function refreshRows() {
 }
 
 function render() {
+  const confirmed = rows.filter((r) => r.reviewed);
+  renderKpis(confirmed);
   renderReview();
   renderTable();
+  if (currentView === 'stats') renderStats(confirmed);
+}
+
+// ---------- View tabs (Applications / Stats) ----------
+
+let currentView = 'applications';
+
+function setView(view) {
+  currentView = view;
+  document.querySelectorAll('.view-tab').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.view === view);
+  });
+  applicationsView.style.display = view === 'applications' ? 'block' : 'none';
+  statsView.style.display = view === 'stats' ? 'block' : 'none';
+  if (view === 'stats') renderStats(rows.filter((r) => r.reviewed));
+}
+
+document.querySelectorAll('.view-tab').forEach((btn) => {
+  btn.addEventListener('click', () => setView(btn.dataset.view));
+});
+
+// ---------- KPIs + Stats tab (all computed client-side from `rows`) ----------
+
+function renderKpis(confirmed) {
+  kpiTotal.textContent = confirmed.length;
+
+  const weekAgo = Date.now() - 7 * 86400000;
+  const thisWeek = confirmed.filter((r) => {
+    const t = new Date(r.applied_at).getTime();
+    return !isNaN(t) && t >= weekAgo;
+  }).length;
+  kpiWeek.textContent = thisWeek;
+
+  const siteCounts = {};
+  for (const r of confirmed) siteCounts[r.site] = (siteCounts[r.site] || 0) + 1;
+  const topSite = Object.entries(siteCounts).sort((a, b) => b[1] - a[1])[0];
+  kpiTopSite.textContent = topSite ? topSite[0] : '—';
+}
+
+function renderStats(confirmed) {
+  renderWeeklyChart(confirmed);
+  renderStatusDonut(confirmed);
+  renderBreakdownBars(siteBars, confirmed, 'site');
+  renderBreakdownBars(workModeBars, confirmed, 'work_mode');
+}
+
+function startOfWeek(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay());
+  return d;
+}
+
+function computeWeeklyBuckets(confirmed, weeks) {
+  const now = new Date();
+  const buckets = [];
+  for (let i = weeks - 1; i >= 0; i--) {
+    const start = startOfWeek(new Date(now.getTime() - i * 7 * 86400000));
+    buckets.push({ start, count: 0 });
+  }
+  for (const r of confirmed) {
+    const d = new Date(r.applied_at);
+    if (isNaN(d)) continue;
+    const weekStart = startOfWeek(d).getTime();
+    const bucket = buckets.find((b) => b.start.getTime() === weekStart);
+    if (bucket) bucket.count++;
+  }
+  return buckets;
+}
+
+function renderWeeklyChart(confirmed) {
+  const buckets = computeWeeklyBuckets(confirmed, 10);
+  const max = Math.max(1, ...buckets.map((b) => b.count));
+  const chartHeight = 100;
+  const colWidth = 100 / buckets.length;
+  const barWidth = colWidth * 0.7;
+
+  const bars = buckets.map((b, i) => {
+    const barHeight = Math.max((b.count / max) * 70, b.count ? 3 : 1.5);
+    const x = i * colWidth + (colWidth - barWidth) / 2;
+    const y = chartHeight - barHeight - 14;
+    const dateLabel = `${b.start.getMonth() + 1}/${b.start.getDate()}`;
+    return `<rect class="weekly-chart-bar${b.count ? '' : ' empty'}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${barHeight.toFixed(2)}" rx="1.5"><title>Week of ${dateLabel}: ${b.count}</title></rect>`;
+  }).join('');
+
+  const firstLabel = buckets.length ? `${buckets[0].start.getMonth() + 1}/${buckets[0].start.getDate()}` : '';
+  const lastLabel = buckets.length ? `${buckets[buckets.length - 1].start.getMonth() + 1}/${buckets[buckets.length - 1].start.getDate()}` : '';
+
+  weeklyChart.innerHTML = `
+    <svg viewBox="0 0 100 ${chartHeight}" preserveAspectRatio="none" style="width:100%;height:140px;">${bars}</svg>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px;">
+      <span>${firstLabel}</span><span>${lastLabel}</span>
+    </div>
+  `;
+}
+
+function renderStatusDonut(confirmed) {
+  const counts = {};
+  for (const status of STATUS_VALUES) counts[status] = 0;
+  for (const r of confirmed) {
+    const status = STATUS_VALUES.includes(r.status) ? r.status : 'Applied';
+    counts[status]++;
+  }
+  const total = confirmed.length;
+  if (total === 0) {
+    statusDonut.innerHTML = '<div class="chart-empty">No data yet</div>';
+    return;
+  }
+
+  let cumulative = 0;
+  const stops = [];
+  const legend = [];
+  for (const status of STATUS_VALUES) {
+    const count = counts[status];
+    if (count === 0) continue;
+    const pct = (count / total) * 100;
+    const varName = `--status-${status.toLowerCase()}`;
+    stops.push(`var(${varName}) ${cumulative.toFixed(2)}% ${(cumulative + pct).toFixed(2)}%`);
+    legend.push(`<div class="donut-legend-item"><span class="donut-dot" style="background:var(${varName})"></span>${status} (${count})</div>`);
+    cumulative += pct;
+  }
+
+  statusDonut.innerHTML = `
+    <div class="donut-wrap">
+      <div class="donut" style="background: conic-gradient(${stops.join(', ')});"></div>
+      <div class="donut-legend">${legend.join('')}</div>
+    </div>
+  `;
+}
+
+function renderBreakdownBars(container, confirmed, field) {
+  const counts = {};
+  for (const r of confirmed) {
+    const key = r[field] || 'Unknown';
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) {
+    container.innerHTML = '<div class="chart-empty">No data yet</div>';
+    return;
+  }
+  const max = Math.max(1, ...entries.map(([, c]) => c));
+  container.innerHTML = entries.map(([label, count]) => `
+    <div class="bar-row">
+      <div class="bar-row-label" title="${escapeHtml(label)}">${escapeHtml(label)}</div>
+      <div class="bar-row-track"><div class="bar-row-fill" style="width:${(count / max) * 100}%"></div></div>
+      <div class="bar-row-value">${count}</div>
+    </div>
+  `).join('');
 }
 
 function renderReview() {
@@ -322,7 +564,7 @@ reviewList.addEventListener('click', async (e) => {
     const field = (name) => card.querySelector(`[data-field="${name}"]`).value;
     db.run(
       `UPDATE applications SET job_title = ?, company = ?, location = ?,
-       work_mode = ?, employment_type = ?, level = ?, term = ?, reviewed = 1 WHERE id = ?`,
+       work_mode = ?, employment_type = ?, level = ?, term = ?, reviewed = 1, status = 'Applied' WHERE id = ?`,
       [field('job_title'), field('company'), field('location'),
        field('work_mode'), field('employment_type'), field('level'), field('term'), id]
     );
@@ -361,6 +603,11 @@ function renderTable() {
       <td contenteditable="true" data-field="job_title">${escapeHtml(r.job_title)}</td>
       <td contenteditable="true" data-field="company">${escapeHtml(r.company)}</td>
       <td contenteditable="true" data-field="location">${escapeHtml(r.location)}</td>
+      <td class="status-cell" data-status="${escapeAttr(r.status || 'Applied')}">
+        <select class="status-select" data-field="status">
+          ${STATUS_VALUES.map((v) => `<option value="${v}"${(r.status || 'Applied') === v ? ' selected' : ''}>${v}</option>`).join('')}
+        </select>
+      </td>
       <td contenteditable="true" data-field="work_mode">${escapeHtml(r.work_mode)}</td>
       <td contenteditable="true" data-field="employment_type">${escapeHtml(r.employment_type)}</td>
       <td contenteditable="true" data-field="level">${escapeHtml(r.level)}</td>
@@ -409,8 +656,18 @@ tableBody.addEventListener('click', async (e) => {
   if (e.target.dataset.action !== 'delete') return;
   const tr = e.target.closest('tr');
   const id = tr.dataset.id;
-  if (!confirm('Remove this row?')) return;
+  const ok = await confirmDialog('This removes the row permanently — there is no undo.', { title: 'Remove this row?', okLabel: 'Remove' });
+  if (!ok) return;
   db.run('DELETE FROM applications WHERE id = ?', [id]);
+  await persist();
+  refreshRows();
+});
+
+tableBody.addEventListener('change', async (e) => {
+  if (e.target.dataset.field !== 'status') return;
+  const tr = e.target.closest('tr');
+  const id = tr.dataset.id;
+  db.run('UPDATE applications SET status = ? WHERE id = ?', [e.target.value, id]);
   await persist();
   refreshRows();
 });
@@ -428,8 +685,8 @@ document.getElementById('addRowBtn').addEventListener('click', async () => {
   const now = new Date().toISOString();
   const placeholderUrl = `manual:${Date.now()}`;
   db.run(
-    `INSERT INTO applications (site, job_title, company, location, url, applied_at, extraction_method, notes, imported_at, reviewed)
-     VALUES ('manual', 'New application', '', '', ?, ?, 'manual', '', ?, 1)`,
+    `INSERT INTO applications (site, job_title, company, location, url, applied_at, extraction_method, notes, imported_at, reviewed, status)
+     VALUES ('manual', 'New application', '', '', ?, ?, 'manual', '', ?, 1, 'Applied')`,
     [placeholderUrl, now, now]
   );
   await persist();
@@ -476,7 +733,7 @@ resumeFileInput.addEventListener('change', async () => {
   } catch (err) {
     console.error(err);
     resumeTextArea.value = '';
-    alert('Could not read that PDF. You can paste your resume text in manually instead.');
+    notify('error', 'Could not read that PDF. You can paste your resume text in manually instead.');
   }
 });
 
@@ -499,11 +756,28 @@ async function extractPdfText(file) {
 // ---------- Tools modal: keyword match + cover letter draft ----------
 
 let toolsRowId = null;
+let toolsRow = null;
+let toolsMatch = { present: [], missing: [] };
+
+function renderKeywordChips(entries, kind) {
+  if (!entries.length) {
+    return `<span style="color:var(--muted);font-size:12px;">${kind === 'present' ? 'None detected' : 'None — nice work'}</span>`;
+  }
+  return entries
+    .map((e) => `<span class="kw-chip ${kind} tier-${e.tier.toLowerCase()}" title="${e.tier} priority">${escapeHtml(e.keyword)}</span>`)
+    .join('');
+}
+
+function regenerateCoverLetter() {
+  if (!toolsRow) return;
+  coverLetterArea.value = buildCoverLetterDraft(toolsRow, getResumeText(), toolsMatch, toneSelect.value);
+}
 
 function openToolsModal(id) {
   const row = rows.find((r) => String(r.id) === String(id));
   if (!row) return;
   toolsRowId = id;
+  toolsRow = row;
 
   toolsTitle.textContent = `${row.job_title || 'Job'} — ${row.company || ''}`;
   toolsSubtitle.textContent = [row.site, row.location, row.work_mode].filter(Boolean).join(' · ');
@@ -511,28 +785,26 @@ function openToolsModal(id) {
   const resumeText = getResumeText();
   toolsNoResume.style.display = resumeText ? 'none' : 'block';
   toolsNoDescription.style.display = row.description ? 'none' : 'block';
+  toneSelect.value = 'standard';
 
   if (row.description) {
-    const match = matchKeywords(row.description, resumeText);
+    toolsMatch = matchKeywords(row.description, resumeText);
     kwColumns.style.display = 'flex';
-    kwPresent.innerHTML = match.present.length
-      ? match.present.map((k) => `<span class="kw-chip present">${escapeHtml(k)}</span>`).join('')
-      : '<span style="color:var(--muted);font-size:12px;">None detected</span>';
-    kwMissing.innerHTML = match.missing.length
-      ? match.missing.map((k) => `<span class="kw-chip missing">${escapeHtml(k)}</span>`).join('')
-      : '<span style="color:var(--muted);font-size:12px;">None — nice work</span>';
-    coverLetterArea.value = buildCoverLetterDraft(row, resumeText, match);
+    kwPresent.innerHTML = renderKeywordChips(toolsMatch.present, 'present');
+    kwMissing.innerHTML = renderKeywordChips(toolsMatch.missing, 'missing');
   } else {
+    toolsMatch = { present: [], missing: [] };
     kwColumns.style.display = 'none';
-    coverLetterArea.value = buildCoverLetterDraft(row, resumeText, { present: [], missing: [] });
   }
 
+  regenerateCoverLetter();
   toolsModal.classList.add('open');
 }
 
 function closeToolsModal() {
   toolsModal.classList.remove('open');
   toolsRowId = null;
+  toolsRow = null;
 }
 
 toolsCloseBtn.addEventListener('click', closeToolsModal);
@@ -540,6 +812,7 @@ toolsOpenResumeBtn.addEventListener('click', () => {
   closeToolsModal();
   openResumeModal();
 });
+toneSelect.addEventListener('change', regenerateCoverLetter);
 
 coverLetterCopyBtn.addEventListener('click', async () => {
   try {
@@ -547,20 +820,57 @@ coverLetterCopyBtn.addEventListener('click', async () => {
     coverLetterCopyBtn.textContent = 'Copied!';
     setTimeout(() => { coverLetterCopyBtn.textContent = 'Copy to clipboard'; }, 1800);
   } catch (err) {
-    alert('Could not copy automatically — select the text and copy manually.');
+    notify('error', 'Could not copy automatically — select the text and copy manually.');
   }
 });
 
 // ---------- Boot ----------
 
-document.getElementById('openExistingBtn').addEventListener('click', () => connectExisting().catch(console.error));
-document.getElementById('createNewBtn').addEventListener('click', () => createNew().catch(console.error));
+function handlePickerError(err, message) {
+  if (err?.name === 'AbortError') return; // user cancelled the picker — not an error
+  console.error(err);
+  setStatus(message, 'var(--bad)');
+}
+
+document.getElementById('openExistingBtn').addEventListener('click', () => {
+  connectExisting().catch((err) => handlePickerError(err, 'Could not open that file — try again'));
+});
+document.getElementById('createNewBtn').addEventListener('click', () => {
+  createNew().catch((err) => handlePickerError(err, 'Could not create jobs.db — try again'));
+});
 
 async function boot() {
-  SQL = await initSqlJs({ locateFile: (file) => `vendor/${file}` });
-  const handled = await tryReconnect();
-  if (!handled) {
-    setStatus('Not connected', '#999');
+  if (!window.showOpenFilePicker || !window.showSaveFilePicker) {
+    connectPanel.innerHTML = `
+      <p><strong>This Dashboard needs Chrome or Edge.</strong> It reads and writes
+      <code>jobs.db</code> directly using the File System Access API, which isn't
+      available in this browser.</p>
+    `;
+    setStatus('Unsupported browser', 'var(--bad)');
+    return;
+  }
+
+  try {
+    SQL = await initSqlJs({ locateFile: (file) => `vendor/${file}` });
+  } catch (err) {
+    console.error('Failed to load the local database engine:', err);
+    connectPanel.innerHTML = `
+      <p><strong>Could not load the local database engine.</strong> Try reloading this
+      tab. If this keeps happening, reload the extension from
+      <code>chrome://extensions</code> and refresh this tab again.</p>
+    `;
+    setStatus('Failed to start', 'var(--bad)');
+    return;
+  }
+
+  try {
+    const handled = await tryReconnect();
+    if (!handled) {
+      setStatus('Not connected', '#999');
+    }
+  } catch (err) {
+    console.error('Failed to reconnect to jobs.db:', err);
+    setStatus('Reconnect failed — try Open existing jobs.db below', 'var(--bad)');
   }
 }
 

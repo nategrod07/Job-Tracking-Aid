@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Job Application Tracker",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Detects when you click Apply on LinkedIn, Indeed, and Handshake and logs the job details locally.",
   "permissions": ["storage", "downloads"],
   "host_permissions": [
-    "*://*.linkedin.com/*",
-    "*://*.indeed.com/*",
-    "*://*.joinhandshake.com/*"
+    "*://*.linkedin.com/jobs/*",
+    "*://*.indeed.com/viewjob*",
+    "*://*.indeed.com/jobs*",
+    "*://app.joinhandshake.com/*"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
@@ -21,17 +22,17 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://*.linkedin.com/*"],
+      "matches": ["*://*.linkedin.com/jobs/*"],
       "js": ["common.js", "content-linkedin.js"],
       "run_at": "document_idle"
     },
     {
-      "matches": ["*://*.indeed.com/*"],
+      "matches": ["*://*.indeed.com/viewjob*", "*://*.indeed.com/jobs*"],
       "js": ["common.js", "content-indeed.js"],
       "run_at": "document_idle"
     },
     {
-      "matches": ["*://*.joinhandshake.com/*"],
+      "matches": ["*://app.joinhandshake.com/*"],
       "js": ["common.js", "content-handshake.js"],
       "run_at": "document_idle"
     }

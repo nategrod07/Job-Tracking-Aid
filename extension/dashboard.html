@@ -5,7 +5,7 @@
   <title>Job Application Tracker — Dashboard</title>
   <style>
     :root {
-      --bg: #ffffff;
+      --bg: #f5f6f8;
       --panel: #ffffff;
       --text: #1a1a1a;
       --muted: #666;
@@ -13,15 +13,26 @@
       --stripe: #f7f8fa;
       --hover: #eef2ff;
       --accent: #2563eb;
+      --accent-soft: rgba(37,99,235,0.10);
       --accent-text: #ffffff;
       --good: #16a34a;
       --bad: #dc2626;
       --review-bg: #fffbeb;
       --review-border: #f2c94c;
       --input-bg: #ffffff;
+      --shadow-sm: 0 1px 2px rgba(16,24,40,0.06);
+      --shadow-md: 0 8px 24px rgba(16,24,40,0.12);
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --status-applied: #2563eb;
+      --status-interviewing: #d97706;
+      --status-offer: #16a34a;
+      --status-rejected: #dc2626;
+      --status-ghosted: #6b7280;
     }
     html[data-theme="dark"] {
-      --bg: #14161a;
+      --bg: #101216;
       --panel: #1c1f26;
       --text: #e7e9ee;
       --muted: #9aa2af;
@@ -29,12 +40,20 @@
       --stripe: #1a1d24;
       --hover: #232a3d;
       --accent: #3b82f6;
+      --accent-soft: rgba(59,130,246,0.16);
       --accent-text: #ffffff;
       --good: #4ade80;
       --bad: #f87171;
       --review-bg: #26240f;
       --review-border: #6b5b12;
       --input-bg: #20232b;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+      --shadow-md: 0 8px 28px rgba(0,0,0,0.45);
+      --status-applied: #60a5fa;
+      --status-interviewing: #fbbf24;
+      --status-offer: #4ade80;
+      --status-rejected: #f87171;
+      --status-ghosted: #9aa2af;
     }
 
     * { box-sizing: border-box; }
@@ -53,7 +72,13 @@
       gap: 14px;
       margin-bottom: 4px;
     }
-    h1 { font-size: 19px; margin: 0; flex: 1; }
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      margin: 0;
+      flex: 1;
+    }
     #themeToggle {
       font-size: 13px;
       padding: 6px 12px;
@@ -63,7 +88,7 @@
     #status {
       font-size: 12px;
       color: var(--muted);
-      margin-bottom: 20px;
+      margin-bottom: 18px;
     }
     #status .dot {
       display: inline-block;
@@ -73,6 +98,54 @@
       background: var(--good);
       margin-right: 6px;
     }
+
+    .kpi-row { display: flex; gap: 12px; margin-bottom: 20px; }
+    .kpi-tile {
+      flex: 1;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      box-shadow: var(--shadow-sm);
+    }
+    .kpi-value { font-size: 24px; font-weight: 700; line-height: 1.15; }
+    .kpi-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 4px; }
+
+    .view-tabs { display: flex; gap: 18px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+    .view-tab {
+      border: none;
+      background: none;
+      box-shadow: none;
+      padding: 8px 2px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
+      cursor: pointer;
+    }
+    .view-tab:hover { color: var(--text); background: none; }
+    .view-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 760px) { .stats-grid { grid-template-columns: 1fr; } }
+    .stats-panel { min-height: 200px; }
+    .chart-empty { color: var(--muted); font-size: 12px; padding: 20px 0; }
+
+    .weekly-chart-bar { fill: var(--accent); }
+    .weekly-chart-bar.empty { fill: var(--stripe); }
+
+    .donut-wrap { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+    .donut { width: 116px; height: 116px; border-radius: 50%; flex-shrink: 0; box-shadow: inset 0 0 0 20px var(--panel); }
+    .donut-legend { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+    .donut-legend-item { display: flex; align-items: center; gap: 6px; }
+    .donut-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+
+    .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; font-size: 12px; }
+    .bar-row-label { width: 96px; color: var(--muted); flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar-row-track { flex: 1; background: var(--stripe); border-radius: 999px; height: 10px; overflow: hidden; }
+    .bar-row-fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width 0.3s ease; }
+    .bar-row-value { width: 22px; text-align: right; color: var(--muted); flex-shrink: 0; }
 
     #connectPanel {
       border: 1px dashed var(--border);
@@ -163,8 +236,10 @@
       background: var(--panel);
       color: var(--text);
       cursor: pointer;
+      transition: background 0.12s ease, border-color 0.12s ease, filter 0.12s ease, transform 0.08s ease;
     }
     button:hover { background: var(--hover); }
+    button:active { transform: scale(0.97); }
     button.primary {
       background: var(--accent);
       color: var(--accent-text);
@@ -197,6 +272,7 @@
       letter-spacing: 0.03em;
     }
     thead th:hover { color: var(--accent); }
+    tbody tr { transition: background 0.1s ease; }
     tbody tr:nth-child(even) { background: var(--stripe); }
     tbody tr:hover { background: var(--hover); }
     tbody td {
@@ -219,7 +295,32 @@
     }
     td.site { text-transform: uppercase; font-size: 11px; color: var(--muted); }
     td.actions button { font-size: 11px; padding: 3px 9px; }
-    .empty { color: var(--muted); padding: 30px; text-align: center; }
+    .status-cell { --status-color: var(--muted); }
+    .status-cell[data-status="Applied"] { --status-color: var(--status-applied); }
+    .status-cell[data-status="Interviewing"] { --status-color: var(--status-interviewing); }
+    .status-cell[data-status="Offer"] { --status-color: var(--status-offer); }
+    .status-cell[data-status="Rejected"] { --status-color: var(--status-rejected); }
+    .status-cell[data-status="Ghosted"] { --status-color: var(--status-ghosted); }
+    .status-select {
+      appearance: none;
+      -webkit-appearance: none;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 22px 4px 10px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--status-color) 45%, transparent);
+      background-color: color-mix(in srgb, var(--status-color) 14%, var(--panel));
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' fill-rule='evenodd'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      color: var(--status-color);
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+    .empty { color: var(--muted); padding: 40px 20px; text-align: center; }
+    .empty .empty-icon { color: var(--muted); opacity: 0.5; margin-bottom: 10px; }
+    .empty .empty-title { font-weight: 600; color: var(--text); margin-bottom: 4px; font-size: 13px; }
+    .empty .empty-hint { font-size: 12px; }
     #tableWrap { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 
     .modal-backdrop {
@@ -233,7 +334,7 @@
       padding: 40px 20px;
       overflow-y: auto;
     }
-    .modal-backdrop.open { display: flex; }
+    .modal-backdrop.open { display: flex; animation: backdrop-in 0.15s ease; }
     .modal {
       background: var(--panel);
       border: 1px solid var(--border);
@@ -243,6 +344,14 @@
       max-width: 640px;
       max-height: calc(100vh - 80px);
       overflow-y: auto;
+      box-shadow: var(--shadow-md);
+      animation: modal-in 0.18s ease;
+    }
+    .modal.confirm { max-width: 400px; }
+    @keyframes backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes modal-in {
+      from { opacity: 0; transform: translateY(8px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
     }
     .modal h2 { font-size: 16px; margin: 0 0 4px 0; }
     .modal .subtitle { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
@@ -270,6 +379,9 @@
     }
     .kw-chip.present { background: rgba(22,163,74,0.15); color: var(--good); }
     .kw-chip.missing { background: rgba(220,38,38,0.12); color: var(--bad); }
+    .kw-chip.tier-high { font-weight: 700; box-shadow: inset 0 0 0 1px currentColor; }
+    .kw-chip.tier-medium { font-weight: 600; }
+    .kw-chip.tier-low { font-weight: 400; opacity: 0.75; }
     .no-resume-note {
       background: var(--review-bg);
       border: 1px solid var(--review-border);
@@ -278,6 +390,41 @@
       font-size: 12px;
       margin-bottom: 14px;
     }
+
+    #toastContainer {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 2000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: flex-end;
+      pointer-events: none;
+    }
+    .toast {
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-md);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      font-size: 13px;
+      max-width: 340px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      animation: toast-in 0.18s ease;
+      pointer-events: auto;
+    }
+    .toast.success { border-color: color-mix(in srgb, var(--good) 50%, var(--border)); }
+    .toast.error { border-color: color-mix(in srgb, var(--bad) 50%, var(--border)); }
+    .toast .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--accent); }
+    .toast.success .dot { background: var(--good); }
+    .toast.error .dot { background: var(--bad); }
+    .toast.leaving { animation: toast-out 0.15s ease forwards; }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toast-out { from { opacity: 1; } to { opacity: 0; transform: translateY(4px); } }
   </style>
 </head>
 <body>
@@ -295,40 +442,88 @@
     <button id="createNewBtn">Create new jobs.db</button>
   </div>
 
+  <div class="kpi-row" id="kpiRow" style="display:none;">
+    <div class="kpi-tile">
+      <div class="kpi-value" id="kpiTotal">0</div>
+      <div class="kpi-label">Total applications</div>
+    </div>
+    <div class="kpi-tile">
+      <div class="kpi-value" id="kpiWeek">0</div>
+      <div class="kpi-label">This week</div>
+    </div>
+    <div class="kpi-tile">
+      <div class="kpi-value" id="kpiTopSite">—</div>
+      <div class="kpi-label">Most active site</div>
+    </div>
+  </div>
+
   <div id="appPanel" style="display:none;">
-    <div id="reviewPanel" class="panel" style="display:none;">
-      <div class="panel-title">Needs review <span class="count" id="reviewCount">0</span></div>
-      <div id="reviewList"></div>
+    <div class="view-tabs" id="viewTabs">
+      <button class="view-tab active" data-view="applications">Applications</button>
+      <button class="view-tab" data-view="stats">📊 Stats</button>
     </div>
 
-    <div class="toolbar">
-      <input type="text" id="searchInput" placeholder="Search title, company, location..." />
-      <button id="addRowBtn">+ Add row</button>
-      <button id="syncBtn">Sync now</button>
-      <span class="spacer"></span>
-      <span id="rowCount" style="font-size:12px;color:var(--muted);"></span>
+    <div id="applicationsView">
+      <div id="reviewPanel" class="panel" style="display:none;">
+        <div class="panel-title">Needs review <span class="count" id="reviewCount">0</span></div>
+        <div id="reviewList"></div>
+      </div>
+
+      <div class="toolbar">
+        <input type="text" id="searchInput" placeholder="Search title, company, location..." />
+        <button id="addRowBtn">+ Add row</button>
+        <button id="syncBtn">Sync now</button>
+        <span class="spacer"></span>
+        <span id="rowCount" style="font-size:12px;color:var(--muted);"></span>
+      </div>
+      <div id="tableWrap">
+        <table>
+          <thead>
+            <tr>
+              <th data-key="applied_at">Applied</th>
+              <th data-key="site">Site</th>
+              <th data-key="job_title">Title</th>
+              <th data-key="company">Company</th>
+              <th data-key="location">Location</th>
+              <th data-key="status">Status</th>
+              <th data-key="work_mode">Work mode</th>
+              <th data-key="employment_type">Type</th>
+              <th data-key="level">Level</th>
+              <th data-key="term">Term</th>
+              <th data-key="url">Link</th>
+              <th data-key="notes">Notes</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+        <div id="emptyState" class="empty" style="display:none;">
+          <svg class="empty-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/><path d="M10 12v2h4v-2"/></svg>
+          <div class="empty-title">No confirmed applications yet</div>
+          <div class="empty-hint">Apply to a job on LinkedIn, Indeed, or Handshake — captures land in "Needs review" above.</div>
+        </div>
+      </div>
     </div>
-    <div id="tableWrap">
-      <table>
-        <thead>
-          <tr>
-            <th data-key="applied_at">Applied</th>
-            <th data-key="site">Site</th>
-            <th data-key="job_title">Title</th>
-            <th data-key="company">Company</th>
-            <th data-key="location">Location</th>
-            <th data-key="work_mode">Work mode</th>
-            <th data-key="employment_type">Type</th>
-            <th data-key="level">Level</th>
-            <th data-key="term">Term</th>
-            <th data-key="url">Link</th>
-            <th data-key="notes">Notes</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="tableBody"></tbody>
-      </table>
-      <div id="emptyState" class="empty" style="display:none;">No confirmed applications yet.</div>
+
+    <div id="statsView" style="display:none;">
+      <div class="stats-grid">
+        <div class="panel stats-panel">
+          <div class="panel-title">Applications per week</div>
+          <div id="weeklyChart"></div>
+        </div>
+        <div class="panel stats-panel">
+          <div class="panel-title">Status breakdown</div>
+          <div id="statusDonut"></div>
+        </div>
+        <div class="panel stats-panel">
+          <div class="panel-title">By site</div>
+          <div id="siteBars"></div>
+        </div>
+        <div class="panel stats-panel">
+          <div class="panel-title">By work mode</div>
+          <div id="workModeBars"></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -377,9 +572,16 @@
         </div>
       </div>
 
-      <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:0.03em;color:var(--muted);margin-bottom:8px;">
-        Cover letter draft (edit freely — bracketed parts are prompts, not filler)
-      </h3>
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+        <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:0.03em;color:var(--muted);margin:0;">
+          Cover letter draft (edit freely — bracketed parts are prompts, not filler)
+        </h3>
+        <select id="toneSelect" style="font-size:12px;padding:4px 8px;">
+          <option value="standard">Standard tone</option>
+          <option value="enthusiastic">Enthusiastic tone</option>
+          <option value="concise">Concise tone</option>
+        </select>
+      </div>
       <textarea id="coverLetterArea" rows="14"></textarea>
       <div class="modal-close-row">
         <button id="coverLetterCopyBtn" class="primary">Copy to clipboard</button>
@@ -388,7 +590,21 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="confirmModal">
+    <div class="modal confirm">
+      <h2 id="confirmTitle">Are you sure?</h2>
+      <div class="subtitle" id="confirmBody"></div>
+      <div class="modal-close-row">
+        <button id="confirmCancelBtn">Cancel</button>
+        <button id="confirmOkBtn" class="danger">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toastContainer" aria-live="polite"></div>
+
   <script src="vendor/sql-wasm.js"></script>
+  <script src="skills-data.js"></script>
   <script src="keywords.js"></script>
   <script src="dashboard.js"></script>
 </body>
