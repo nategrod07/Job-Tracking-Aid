@@ -20,11 +20,11 @@ function isApplyButtonText(text) {
 // Engineer in New York, NY | LinkedIn" — if we stopped there, company and
 // location would end up empty (or worse, stuffed into the title) instead
 // of being split out.
-function extractJobDetails(siteName) {
+function extractJobDetails(siteName, clickedEl) {
   const jsonLdItem = findJsonLdJobPosting();
   const sources = [
     deriveFromJsonLd(jsonLdItem),
-    extractFromDom(siteName),
+    extractFromDom(siteName, clickedEl),
     extractFromMetaParsed(siteName),
     extractFromTitle(siteName)
   ].filter(Boolean);
@@ -210,73 +210,124 @@ function cleanTitle(raw) {
 // later, this is the first place to update. Wrapped defensively so a
 // missing/renamed selector never throws, it just falls through to the
 // other sources.
-function extractFromDom(siteName) {
+//
+// `clickedEl` (the element that was actually clicked) is used to scope the
+// search to a nearby container first. This matters on sites like Handshake
+// that show job details in a split-pane/side panel without a real page
+// navigation — a plain document-wide `querySelector('h1')` can grab the
+// wrong heading (e.g. a page-level "Jobs" header) instead of the specific
+// job's title. Each function still falls back to a document-wide search if
+// the scoped one comes up empty, so this can't make things worse.
+function extractFromDom(siteName, clickedEl) {
+  const scope = clickedEl ? findScopedContainer(clickedEl) : document;
   try {
-    if (siteName === 'linkedin') return extractLinkedInDom();
-    if (siteName === 'indeed') return extractIndeedDom();
-    if (siteName === 'handshake') return extractHandshakeDom();
+    if (siteName === 'linkedin') return extractLinkedInDom(scope);
+    if (siteName === 'indeed') return extractIndeedDom(scope);
+    if (siteName === 'handshake') return extractHandshakeDom(scope);
   } catch (err) {
     // selectors didn't match this page version — fall through silently
   }
   return null;
 }
 
-function extractLinkedInDom() {
-  const title = document.querySelector('h1')?.innerText?.trim() || null;
+// Climbs up from the clicked element looking for the nearest ancestor that
+// plausibly contains the whole job card/detail pane: something with a
+// heading in it and a meaningful amount of text (so we don't stop at a tiny
+// wrapper div with just the button in it).
+function findScopedContainer(el) {
+  let node = el;
+  for (let i = 0; i < 10 && node.parentElement; i++) {
+    node = node.parentElement;
+    if (node.querySelector('h1, h2, h3') && (node.innerText || '').length > 150) {
+      return node;
+    }
+  }
+  return document;
+}
+
+function firstMatch(scope, selector) {
+  return scope.querySelector(selector) || (scope !== document ? document.querySelector(selector) : null);
+}
+
+function extractLinkedInDom(scope) {
+  const title = firstMatch(scope, 'h1')?.innerText?.trim() || null;
 
   // LinkedIn always links the company name to its own /company/ page, so
   // this is more stable than relying on a specific class name.
-  const companyLink = document.querySelector('a[href*="/company/"]');
+  const companyLink = firstMatch(scope, 'a[href*="/company/"]');
   const company = companyLink?.innerText?.trim() || null;
 
   // The line under the title (e.g. "New York, NY · 2 days ago · 200 applicants")
   // is usually separated by middle dots; the first segment is the location.
-  const subtitle = document.querySelector(
+  const subtitle = firstMatch(
+    scope,
     '.job-details-jobs-unified-top-card__primary-description-container, .jobs-unified-top-card__primary-description'
   )?.innerText;
   let location = subtitle ? subtitle.split('·')[0]?.trim() || null : null;
-  if (!location) location = findLocationNearTitle();
+  if (!location) location = findLocationNearTitle(scope);
 
   if (!title && !company && !location) return null;
   return { job_title: title, company, location, extraction_method: 'dom' };
 }
 
-function extractIndeedDom() {
-  const title = document.querySelector('h1.jobsearch-JobInfoHeader-title, h1[data-testid="jobsearch-JobInfoHeader-title"]')
+function extractIndeedDom(scope) {
+  const title = firstMatch(scope, 'h1.jobsearch-JobInfoHeader-title, h1[data-testid="jobsearch-JobInfoHeader-title"]')
     ?.innerText?.trim() || null;
-  const company = document.querySelector('[data-testid="inlineHeader-companyName"]')?.innerText?.trim() || null;
-  let location = document.querySelector('[data-testid="inlineHeader-companyLocation"]')?.innerText?.trim() || null;
-  if (!location) location = findLocationNearTitle();
+  const company = firstMatch(scope, '[data-testid="inlineHeader-companyName"]')?.innerText?.trim() || null;
+  let location = firstMatch(scope, '[data-testid="inlineHeader-companyLocation"]')?.innerText?.trim() || null;
+  if (!location) location = findLocationNearTitle(scope);
 
   if (!title && !company && !location) return null;
   return { job_title: title, company, location, extraction_method: 'dom' };
 }
 
-function extractHandshakeDom() {
-  const title = document.querySelector('h1')?.innerText?.trim() || null;
-  const companyLink = document.querySelector('a[href*="/employers/"]');
-  const company = companyLink?.innerText?.trim() || null;
-  const location = findLocationNearTitle();
+function extractHandshakeDom(scope) {
+  // Prefer any heading inside the scoped panel over a document-wide h1 —
+  // Handshake's search page has its own page-level heading that isn't the
+  // job title, so falling back to `document` for this specific query would
+  // reintroduce the bug this is meant to fix.
+  const title = scope.querySelector('h1, h2, [role="heading"]')?.innerText?.trim() || null;
+
+  const companyLink = firstMatch(scope, 'a[href*="/employers/"], a[href*="/organizations/"], a[href*="/companies/"]');
+  let company = companyLink?.innerText?.trim() || null;
+
+  // Fallback: a short, title-cased line near the title that isn't the title
+  // itself and doesn't look like a location — often the employer name shown
+  // as plain text rather than a link.
+  if (!company) company = findCompanyNearTitle(scope, title);
+
+  const location = findLocationNearTitle(scope);
 
   if (!title && !company && !location) return null;
   return { job_title: title, company, location, extraction_method: 'dom' };
 }
 
-// Generic last-resort location finder: climbs a few levels up from the
-// <h1> and scans the nearby text lines for something that looks like a
-// place ("City, ST") or a work-mode word (Remote/Hybrid/On-site). Used
-// when a site's specific selectors miss (e.g. after a redesign) or aren't
-// known at all (Handshake).
-function findLocationNearTitle() {
+// Picks what to scan for the fallback finders below. If `scope` is already
+// a meaningfully bounded container (from findScopedContainer), scan it
+// directly — climbing further from a heading *inside* it would escape past
+// its boundary into unrelated sibling content (e.g. a page-level nav
+// header on a split-pane site like Handshake). Only when there's no usable
+// scope (scope is `document` itself) do we fall back to the older
+// heading-then-climb approach as a last resort.
+function resolveScanContainer(scope) {
+  if (scope && scope !== document) return scope;
+
   const h1 = document.querySelector('h1');
   if (!h1) return null;
-
   let container = h1;
   for (let i = 0; i < 4 && container.parentElement; i++) container = container.parentElement;
+  return container;
+}
 
-  const text = container.innerText || '';
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 15);
+// Generic last-resort location finder: scans the resolved container's
+// nearby text lines for something that looks like a place ("City, ST") or
+// a work-mode word (Remote/Hybrid/On-site). Used when a site's specific
+// selectors miss (e.g. after a redesign) or aren't known at all (Handshake).
+function findLocationNearTitle(scope) {
+  const container = resolveScanContainer(scope);
+  if (!container) return null;
 
+  const lines = linesNear(container);
   for (const line of lines) {
     const segment = line.split('·')[0].trim();
     if (/^(Remote|Hybrid|On[\s-]?site)$/i.test(segment)) return segment;
@@ -284,6 +335,30 @@ function findLocationNearTitle() {
     if (/^[A-Z][A-Za-z.'\s]+,\s*[A-Z]{2}(,\s*[A-Za-z\s]+)?$/.test(segment)) return segment;
   }
   return null;
+}
+
+// Best-effort employer-name guess when there's no company link to grab:
+// looks for a short, title-cased line in the resolved container that isn't
+// the job title and doesn't look like a location/date/applicant-count line.
+function findCompanyNearTitle(scope, title) {
+  const container = resolveScanContainer(scope);
+  if (!container) return null;
+
+  const lines = linesNear(container);
+  for (const line of lines) {
+    if (title && line === title) continue;
+    if (line.length < 2 || line.length > 60) continue;
+    if (/^(Remote|Hybrid|On[\s-]?site)$/i.test(line)) continue;
+    if (/^[A-Z][A-Za-z.'\s]+,\s*[A-Z]{2}/.test(line)) continue; // looks like "City, ST"
+    if (/\d/.test(line)) continue; // dates, applicant counts, etc.
+    if (/^[A-Z][a-zA-Z&.,'\s-]+$/.test(line)) return line;
+  }
+  return null;
+}
+
+function linesNear(container) {
+  const text = container.innerText || '';
+  return text.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 15);
 }
 
 // Attaches a single delegated click listener (capture phase) so it still
@@ -305,7 +380,7 @@ function attachApplyListener(siteName) {
     const text = target.innerText || target.getAttribute('aria-label') || target.textContent || '';
     if (!isApplyButtonText(text)) return;
 
-    const details = extractJobDetails(siteName);
+    const details = extractJobDetails(siteName, target);
     try {
       chrome.runtime.sendMessage({
         type: 'JOB_APPLY_DETECTED',
@@ -359,12 +434,14 @@ function ensureBadge() {
 }
 
 function applyBadgeStyle(badge, state) {
-  const bg = state === 'active' ? '#2563eb' : state === 'warning' ? '#b45309' : 'rgba(30, 41, 59, 0.88)';
+  // Green = working normally, red = broken/needs a refresh, blue = flashes
+  // briefly right when a capture happens.
+  const bg = state === 'active' ? '#2563eb' : state === 'warning' ? '#dc2626' : '#16a34a';
   badge.setAttribute('style', `
     all: initial !important;
     position: fixed !important;
-    bottom: 16px !important;
-    right: 16px !important;
+    top: 16px !important;
+    left: 16px !important;
     z-index: 2147483647 !important;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
     font-size: 12px !important;

@@ -9,7 +9,8 @@ directly on disk, laid out like a spreadsheet. No terminal needed day to day.
 
 1. A Chrome extension watches for clicks on anything that looks like an
    "Apply" button on linkedin.com, indeed.com, and joinhandshake.com. A
-   small badge in the corner of the page confirms it's active, and flashes
+   small badge in the top-left corner of the page turns green to confirm it's
+   active (red if something's wrong — see below), and flashes blue
    "✓ Captured: ..." the moment it detects an apply click.
 2. When it fires, it reads the job's title/company/location off the page
    (using the site's embedded structured data where available, falling back
@@ -91,7 +92,9 @@ already open before the reload.
 ### 3. Use it
 
 - Browse and apply to jobs as normal on LinkedIn, Indeed, or Handshake. Watch
-  for the corner badge to flash "✓ Captured" as confirmation it worked.
+  for the top-left badge to flash "✓ Captured" as confirmation it worked. If
+  it turns red instead, the extension was reloaded/updated since you loaded
+  the page — refresh it.
 - Open the Dashboard any time to see the full list — click column headers to
   sort, use the search box to filter, click into any cell to edit it, use
   **+ Add row** for jobs it missed, **delete** to remove a row.
