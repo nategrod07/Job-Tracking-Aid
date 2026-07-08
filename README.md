@@ -22,7 +22,10 @@ about 5 minutes, no technical background needed.
    blue "✓ Captured: ..." the moment it detects an apply click. The badge only
    appears on job-specific pages now — that's intentional (see
    [Permissions are scoped to job pages](#permissions-are-scoped-to-job-pages)
-   below), not a bug if it's missing elsewhere on those sites.
+   below), not a bug if it's missing elsewhere on those sites. Click the badge
+   itself for a dropdown with fit score / resume tailoring / a sample cover
+   letter for whatever posting you're looking at — see "Same tools, right on
+   the job page" below.
 2. When it fires, it reads the job's title/company/location off the page
    (using the site's embedded structured data where available, falling back
    to the page title) and stores the capture in the extension's local
@@ -91,6 +94,26 @@ draft, not a final letter. The alias table catches common paraphrasing
 (abbreviations, tense/form variants of the highest-value soft skills) but
 isn't real language understanding — treat "Consider adding" as a prompt to
 double check, not a strict requirement.
+
+### Same tools, right on the job page
+
+Click the **● Job Tracker active** badge (top-left of any job page) for a
+dropdown with three quick actions, so you don't have to switch to the
+Dashboard to get a read on a posting:
+
+- **🎯 Fit score** — a 0-100% score for this specific posting, weighted by
+  how important each matched/missing keyword looks (see "Resume tools"
+  above) — not a claim of precise fit, just the same heuristic rolled into
+  one number.
+- **📝 Tailor my resume** — the same "Already on your resume" / "Consider
+  adding" chip lists as the Dashboard's tools modal.
+- **✉️ Sample cover letter** — a draft in the Standard tone (for
+  Enthusiastic/Concise, use the Dashboard's tools modal).
+
+All three need your resume saved first (📄 Resume, in the Dashboard) and a
+captured job description on the current page. On a page showing multiple
+postings at once (e.g. a split-pane search view), this works off whatever
+the page-wide extraction finds, same as elsewhere in this app.
 
 ## Setup
 

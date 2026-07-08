@@ -832,10 +832,42 @@ exportCsvBtn.addEventListener('click', () => exportCsv(getVisibleRows()));
 
 searchInput.addEventListener('input', renderTable);
 
-// ---------- Resume (stored in localStorage — never leaves the browser) ----------
+// ---------- Resume (stored in chrome.storage.local — never leaves the browser,
+// but shared across the extension so the on-page badge menu on job sites can
+// read it too, not just this Dashboard tab. localStorage wouldn't work for
+// that: content scripts on linkedin.com/indeed.com run in a different origin
+// and can't see this tab's localStorage at all.) ----------
+
+let cachedResumeText = '';
 
 function getResumeText() {
-  return localStorage.getItem('resumeText') || '';
+  return cachedResumeText;
+}
+
+// Loads the current resume into the in-memory cache above, migrating a
+// pre-existing localStorage-based resume (from before this storage moved)
+// exactly once so nobody's already-saved resume silently disappears.
+function loadResumeText() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get({ resumeText: '' }, (data) => {
+      let text = data.resumeText;
+      if (!text) {
+        const legacy = localStorage.getItem('resumeText');
+        if (legacy) {
+          text = legacy;
+          chrome.storage.local.set({ resumeText: legacy });
+          localStorage.removeItem('resumeText');
+        }
+      }
+      cachedResumeText = text || '';
+      resolve(cachedResumeText);
+    });
+  });
+}
+
+function saveResumeText(text) {
+  cachedResumeText = text;
+  chrome.storage.local.set({ resumeText: text });
 }
 
 function openResumeModal() {
@@ -851,7 +883,7 @@ resumeBtn.addEventListener('click', openResumeModal);
 resumeCloseBtn.addEventListener('click', closeResumeModal);
 
 resumeSaveBtn.addEventListener('click', () => {
-  localStorage.setItem('resumeText', resumeTextArea.value);
+  saveResumeText(resumeTextArea.value);
   closeResumeModal();
 });
 
@@ -981,6 +1013,8 @@ document.getElementById('createNewBtn').addEventListener('click', () => {
 });
 
 async function boot() {
+  await loadResumeText();
+
   if (!window.showOpenFilePicker || !window.showSaveFilePicker) {
     connectPanel.innerHTML = `
       <p><strong>This Dashboard needs Chrome or Edge.</strong> It reads and writes

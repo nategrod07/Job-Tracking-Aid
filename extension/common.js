@@ -393,7 +393,10 @@ function findApplyTarget(clicked) {
   return null;
 }
 
+let currentSiteName = null;
+
 function attachApplyListener(siteName) {
+  currentSiteName = siteName;
   document.addEventListener('click', (e) => {
     if (contextInvalid) return;
 
@@ -429,69 +432,301 @@ function markContextInvalid() {
   if (contextInvalid) return;
   contextInvalid = true;
   clearTimeout(badgeResetTimer);
-  const badge = ensureBadge();
-  applyBadgeStyle(badge, 'warning');
-  badge.textContent = '⚠️ Job Tracker was updated — refresh this page';
+  ensureBadge();
+  closeBadgeMenu();
+  applyBadgeState('warning');
+  setPillText('⚠️ Job Tracker was updated — refresh this page');
 }
 
-// ---------- On-page badge: confirms the tracker is active, and flashes a
-// confirmation the moment an "apply" click is captured. ----------
+// ---------- On-page badge: confirms the tracker is active, flashes a
+// confirmation the moment an "apply" click is captured, and — via a small
+// dropdown — gives quick access to fit score / resume tailoring / a sample
+// cover letter right on the job page, without switching to the Dashboard.
+//
+// Built in a Shadow DOM rather than plain inline-styled elements (the
+// approach used everywhere else in this file) because a real popover with
+// hover states, scrolling chip lists, and a textarea has far more CSS
+// surface than a one-line badge — trying to cover all of that with
+// individually `!important`-ed inline styles would be unreadable and
+// fragile. Shadow DOM encapsulation solves the "aggressive host-page CSS"
+// problem this file is already careful about, just more completely: host
+// page styles can't reach in, and nothing in here can leak out. ----------
 
 let badgeResetTimer = null;
+let badgeHost = null;
+let badgeShadow = null;
+
+const BADGE_CSS = `
+  :host { all: initial; }
+  * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  .wrap { position: fixed; top: 16px; left: 16px; z-index: 2147483647; }
+  .pill {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; line-height: 1.4; padding: 6px 10px 6px 12px;
+    border-radius: 999px; background: #16a34a; color: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    white-space: nowrap; cursor: pointer; border: none; user-select: none;
+    transition: filter 0.12s ease;
+  }
+  .pill:hover { filter: brightness(1.08); }
+  .chevron { font-size: 9px; opacity: 0.85; transition: transform 0.15s ease; }
+  .wrap.open .chevron, .wrap.showing-panel .chevron { transform: rotate(180deg); }
+  .menu, .panel {
+    display: none;
+    position: absolute; top: calc(100% + 8px); left: 0;
+    width: 300px; max-height: 420px; overflow-y: auto;
+    background: #fff; color: #1a1a1a; border-radius: 12px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.28); border: 1px solid #e5e7eb;
+    padding: 6px;
+  }
+  .wrap.open .menu { display: block; }
+  .wrap.showing-panel .panel { display: block; }
+  .menu-item {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 10px 12px; font-size: 13px; text-align: left;
+    background: none; border: none; border-radius: 8px; cursor: pointer; color: #1a1a1a;
+  }
+  .menu-item:hover { background: #f3f4f6; }
+  .panel { padding: 14px; }
+  .panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+  .panel-title { font-size: 13px; font-weight: 700; margin: 0; }
+  .panel-subtitle { font-size: 11px; color: #666; margin-top: 2px; }
+  .panel-close { border: none; background: none; cursor: pointer; font-size: 15px; color: #888; line-height: 1; padding: 2px; }
+  .panel-close:hover { color: #1a1a1a; }
+  .panel-body { font-size: 12px; line-height: 1.5; }
+  .score-big { font-size: 32px; font-weight: 800; }
+  .score-label { font-size: 11px; color: #666; margin-bottom: 4px; }
+  .chip { display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 999px; margin: 0 5px 5px 0; }
+  .chip.present { background: rgba(22,163,74,0.12); color: #16a34a; }
+  .chip.missing { background: rgba(220,38,38,0.10); color: #dc2626; }
+  .chip-section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: #888; margin: 10px 0 5px; }
+  .chip-section-title:first-child { margin-top: 0; }
+  textarea.cover-letter {
+    width: 100%; min-height: 160px; font-size: 12px; font-family: inherit;
+    padding: 8px; border: 1px solid #e5e7eb; border-radius: 8px; resize: vertical; color: #1a1a1a;
+  }
+  .copy-btn { font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid #e5e7eb; background: #f7f7f7; cursor: pointer; margin-top: 8px; }
+  .copy-btn:hover { background: #eef2ff; }
+  .loading, .empty-note { color: #888; font-size: 12px; padding: 6px 0; }
+`;
 
 function ensureBadge() {
-  let badge = document.getElementById('__job-tracker-badge');
-  if (badge) return badge;
+  if (badgeHost) return badgeHost;
 
-  badge = document.createElement('div');
-  badge.id = '__job-tracker-badge';
-  // Every rule is !important because job sites ship aggressive global CSS
-  // (resets, `all: unset` on wildcard selectors, huge base font-sizes, etc.)
-  // that would otherwise bleed into this element since it inherits from
-  // wherever it's mounted in the DOM.
-  applyBadgeStyle(badge, 'idle');
-  badge.textContent = '● Job Tracker active';
-  (document.body || document.documentElement).appendChild(badge);
-  return badge;
+  badgeHost = document.createElement('div');
+  badgeHost.id = '__job-tracker-badge';
+  badgeShadow = badgeHost.attachShadow({ mode: 'open' });
+  badgeShadow.innerHTML = `
+    <style>${BADGE_CSS}</style>
+    <div class="wrap" id="wrap">
+      <button class="pill" id="pillBtn" type="button">
+        <span id="pillText">● Job Tracker active</span>
+        <span class="chevron">▾</span>
+      </button>
+      <div class="menu" id="menu">
+        <button class="menu-item" data-action="score" type="button">🎯 Fit score</button>
+        <button class="menu-item" data-action="tailor" type="button">📝 Tailor my resume</button>
+        <button class="menu-item" data-action="cover" type="button">✉️ Sample cover letter</button>
+      </div>
+      <div class="panel" id="panel"></div>
+    </div>
+  `;
+  (document.body || document.documentElement).appendChild(badgeHost);
+
+  wireBadgeMenu();
+  applyBadgeState('idle');
+  return badgeHost;
 }
 
-function applyBadgeStyle(badge, state) {
+function setPillText(text) {
+  if (!badgeShadow) return;
+  badgeShadow.getElementById('pillText').textContent = text;
+}
+
+function applyBadgeState(state) {
+  if (!badgeShadow) return;
   // Green = working normally, red = broken/needs a refresh, blue = flashes
   // briefly right when a capture happens.
   const bg = state === 'active' ? '#2563eb' : state === 'warning' ? '#dc2626' : '#16a34a';
-  badge.setAttribute('style', `
-    all: initial !important;
-    position: fixed !important;
-    top: 16px !important;
-    left: 16px !important;
-    z-index: 2147483647 !important;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
-    font-size: 12px !important;
-    line-height: 1.4 !important;
-    padding: 6px 12px !important;
-    border-radius: 999px !important;
-    background: ${bg} !important;
-    color: #fff !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.25) !important;
-    pointer-events: none !important;
-    white-space: nowrap !important;
-    display: block !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-  `);
+  badgeShadow.getElementById('pillBtn').style.background = bg;
 }
 
 function flashBadge(jobTitle, company) {
-  const badge = ensureBadge();
+  ensureBadge();
   clearTimeout(badgeResetTimer);
-  applyBadgeStyle(badge, 'active');
+  applyBadgeState('active');
   const label = jobTitle ? `${jobTitle}${company ? ' @ ' + company : ''}` : 'application';
-  badge.textContent = `✓ Captured: ${label}`;
+  setPillText(`✓ Captured: ${label}`);
   badgeResetTimer = setTimeout(() => {
     if (contextInvalid) return;
-    applyBadgeStyle(badge, 'idle');
-    badge.textContent = '● Job Tracker active';
+    applyBadgeState('idle');
+    setPillText('● Job Tracker active');
   }, 3500);
+}
+
+function closeBadgeMenu() {
+  if (!badgeShadow) return;
+  badgeShadow.getElementById('wrap').classList.remove('open', 'showing-panel');
+}
+
+function escapeHtmlBadge(v) {
+  if (v === null || v === undefined) return '';
+  return String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function wireBadgeMenu() {
+  const wrap = badgeShadow.getElementById('wrap');
+  const pillBtn = badgeShadow.getElementById('pillBtn');
+  const menu = badgeShadow.getElementById('menu');
+  const panel = badgeShadow.getElementById('panel');
+
+  pillBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (contextInvalid) return;
+    const isOpen = wrap.classList.contains('open') || wrap.classList.contains('showing-panel');
+    if (isOpen) {
+      closeBadgeMenu();
+    } else {
+      wrap.classList.add('open');
+    }
+  });
+
+  menu.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const btn = e.target.closest('.menu-item');
+    if (!btn) return;
+    runBadgeAction(btn.dataset.action);
+  });
+
+  panel.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (e.target.closest('[data-action="close"]')) {
+      closeBadgeMenu();
+      return;
+    }
+    const copyBtn = e.target.closest('[data-action="copy"]');
+    if (copyBtn) {
+      const textarea = badgeShadow.getElementById('coverLetterText');
+      if (!textarea) return;
+      try {
+        await navigator.clipboard.writeText(textarea.value);
+        const original = copyBtn.textContent;
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = original; }, 1500);
+      } catch (err) {
+        // Clipboard permissions vary by host page context — the textarea is
+        // still selectable/copyable by hand, so just leave the button as-is.
+      }
+    }
+  });
+
+  // A click anywhere outside the badge closes it. Shadow DOM click events
+  // are retargeted to the host element (badgeHost) once observed from
+  // outside the shadow tree, so `badgeHost.contains(e.target)` correctly
+  // stays true for clicks that originated inside the popover, even though
+  // stopPropagation() above already keeps most of them from reaching here.
+  document.addEventListener('click', (e) => {
+    if (badgeHost && !badgeHost.contains(e.target)) closeBadgeMenu();
+  });
+}
+
+function renderPanelShell(title, bodyHtml, subtitle) {
+  return `
+    <div class="panel-header">
+      <div>
+        <h3 class="panel-title">${escapeHtmlBadge(title)}</h3>
+        ${subtitle ? `<div class="panel-subtitle">${escapeHtmlBadge(subtitle)}</div>` : ''}
+      </div>
+      <button class="panel-close" data-action="close" type="button">✕</button>
+    </div>
+    <div class="panel-body">${bodyHtml}</div>
+  `;
+}
+
+function renderChipList(entries, kind) {
+  if (!entries.length) {
+    return `<span class="empty-note">${kind === 'present' ? 'None detected' : 'None — nice work'}</span>`;
+  }
+  return entries.map((e) => `<span class="chip ${kind}">${escapeHtmlBadge(e.keyword)}</span>`).join('');
+}
+
+function renderScorePanel(score, match) {
+  const body = score === null
+    ? '<div class="empty-note">Not enough information to score this one — no matching keywords found in the captured description.</div>'
+    : `
+      <div class="score-big">${score}%</div>
+      <div class="score-label">match, based on ${match.present.length + match.missing.length} keyword${match.present.length + match.missing.length === 1 ? '' : 's'} found in this posting</div>
+      <div class="chip-section-title">Top gaps</div>
+      ${renderChipList(match.missing.slice(0, 5), 'missing')}
+    `;
+  return renderPanelShell('Fit score', body);
+}
+
+function renderTailorPanel(match) {
+  const body = `
+    <div class="chip-section-title">Already on your resume</div>
+    ${renderChipList(match.present, 'present')}
+    <div class="chip-section-title">Consider adding</div>
+    ${renderChipList(match.missing, 'missing')}
+  `;
+  return renderPanelShell('Tailor my resume', body);
+}
+
+function renderCoverPanel(letter) {
+  const body = `
+    <textarea class="cover-letter" id="coverLetterText">${escapeHtmlBadge(letter)}</textarea>
+    <button class="copy-btn" data-action="copy" type="button">Copy to clipboard</button>
+  `;
+  return renderPanelShell('Sample cover letter', body, 'Standard tone — for other tones, use the Dashboard’s tools modal');
+}
+
+function getStoredResumeText() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get({ resumeText: '' }, (data) => resolve(data.resumeText || ''));
+  });
+}
+
+// Runs one of the three badge-menu actions: extracts the current page's job
+// description on demand (not just at Apply-click time, so this works even
+// before you've clicked Apply), pulls your resume from shared extension
+// storage, and renders a result panel. On a page with multiple postings
+// visible at once (e.g. a split-pane search results view), this describes
+// whatever the page-wide extraction finds — the same scoping limitation
+// already documented for Handshake's DOM extraction.
+async function runBadgeAction(action) {
+  const wrap = badgeShadow.getElementById('wrap');
+  const panel = badgeShadow.getElementById('panel');
+  wrap.classList.remove('open');
+  wrap.classList.add('showing-panel');
+  panel.innerHTML = '<div class="loading">Loading…</div>';
+
+  let details;
+  try {
+    details = extractJobDetails(currentSiteName, null);
+  } catch (err) {
+    details = null;
+  }
+  if (!details || !details.description) {
+    panel.innerHTML = renderPanelShell('No description found', '<div class="empty-note">Could not find a job description on this page to work from.</div>');
+    return;
+  }
+
+  const resumeText = await getStoredResumeText();
+  if (!resumeText) {
+    panel.innerHTML = renderPanelShell('Resume needed', '<div class="empty-note">Add your resume in the Dashboard first (📄 Resume button), then try again.</div>');
+    return;
+  }
+
+  const match = matchKeywords(details.description, resumeText);
+
+  if (action === 'score') {
+    panel.innerHTML = renderScorePanel(computeFitScore(match), match);
+  } else if (action === 'tailor') {
+    panel.innerHTML = renderTailorPanel(match);
+  } else if (action === 'cover') {
+    const letter = buildCoverLetterDraft(details, resumeText, match, 'standard');
+    panel.innerHTML = renderCoverPanel(letter);
+  }
 }
 
 // Show the "active" badge as soon as the content script loads on a matched page.

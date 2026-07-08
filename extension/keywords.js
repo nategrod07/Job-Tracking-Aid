@@ -168,6 +168,21 @@ function matchKeywords(jobDescription, resumeText) {
   return { present, missing };
 }
 
+// Rolls a present/missing match into a single 0-100 score, weighted by
+// priority tier so a missing High-priority skill counts against the score
+// more than a missing Low-priority one. Still just a keyword heuristic
+// dressed up as a number — returns null (not 0) when there's nothing to
+// score at all, so callers can say "not enough info" instead of implying a
+// real zero match.
+function computeFitScore(match) {
+  const weight = (tier) => TIER_RANK[tier] || 1;
+  const presentWeight = (match.present || []).reduce((sum, m) => sum + weight(m.tier), 0);
+  const missingWeight = (match.missing || []).reduce((sum, m) => sum + weight(m.tier), 0);
+  const total = presentWeight + missingWeight;
+  if (total === 0) return null;
+  return Math.round((presentWeight / total) * 100);
+}
+
 // Best-effort guess at the resume owner's name: the first short,
 // title-cased line (most resumes lead with the name).
 function guessNameFromResume(resumeText) {
