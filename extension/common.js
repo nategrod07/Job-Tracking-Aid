@@ -37,29 +37,38 @@ function extractJobDetails(siteName, clickedEl) {
     if (!merged.extraction_method && s.extraction_method) merged.extraction_method = s.extraction_method;
   }
 
-  return { ...merged, ...extractJobMeta(jsonLdItem), description: extractDescription(siteName, jsonLdItem) };
+  return { ...merged, ...extractJobMeta(jsonLdItem), description: extractDescription(siteName, jsonLdItem, clickedEl) };
 }
 
 // Grabs the full job description body text — needed later for keyword
 // matching against a resume and for filling in the cover letter template.
 // JSON-LD's description field (HTML-escaped) is the most reliable source
 // when present; otherwise falls back to known per-site containers, and
-// finally to "largest text block on the page" as a last resort.
-function extractDescription(siteName, jsonLdItem) {
+// finally to "largest text block" as a last resort — scoped to the same
+// nearby container as extractFromDom (see findScopedContainer) when we have
+// a clicked element to scope from. This matters on pages that show
+// multiple postings at once (search results, split panes): without
+// scoping, both fallbacks searched the whole document and could pick up
+// text from a *different* listing than the one being captured.
+function extractDescription(siteName, jsonLdItem, clickedEl) {
   if (jsonLdItem?.description) {
     return stripHtml(jsonLdItem.description).slice(0, 20000);
   }
+
+  const scope = clickedEl ? findScopedContainer(clickedEl) : document;
 
   const knownSelectors = {
     linkedin: '.jobs-description__content, .jobs-box__html-content, .jobs-description-content__text',
     indeed: '#jobDescriptionText',
     handshake: '[class*="description"], [data-hook*="description"]'
   };
-  const el = document.querySelector(knownSelectors[siteName] || '');
+  const el = firstMatch(scope, knownSelectors[siteName] || '');
   if (el?.innerText?.trim()) return el.innerText.trim().slice(0, 20000);
 
-  // Last resort: the largest block of text on the page, excluding our own badge.
-  const candidates = Array.from(document.querySelectorAll('article, section, div'))
+  // Last resort: the largest block of text within the scoped container (the
+  // whole document if we don't have one), excluding our own badge.
+  const searchRoot = scope !== document ? scope : document;
+  const candidates = Array.from(searchRoot.querySelectorAll('article, section, div'))
     .filter((n) => n.id !== '__job-tracker-badge')
     .map((n) => n.innerText || '')
     .filter((t) => t.length > 200);
@@ -485,6 +494,11 @@ const BADGE_CSS = `
     background: #fff; color: #1a1a1a; border-radius: 12px;
     box-shadow: 0 8px 28px rgba(0,0,0,0.28); border: 1px solid #e5e7eb;
     padding: 6px;
+    animation: job-tracker-pop-in 0.14s ease;
+  }
+  @keyframes job-tracker-pop-in {
+    from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
   }
   .wrap.open .menu { display: block; }
   .wrap.showing-panel .panel { display: block; }
@@ -502,6 +516,9 @@ const BADGE_CSS = `
   .panel-close:hover { color: #1a1a1a; }
   .panel-body { font-size: 12px; line-height: 1.5; }
   .score-big { font-size: 32px; font-weight: 800; }
+  .score-big.good { color: #16a34a; }
+  .score-big.ok { color: #d97706; }
+  .score-big.low { color: #dc2626; }
   .score-label { font-size: 11px; color: #666; margin-bottom: 4px; }
   .chip { display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 999px; margin: 0 5px 5px 0; }
   .chip.present { background: rgba(22,163,74,0.12); color: #16a34a; }
@@ -617,6 +634,10 @@ function wireBadgeMenu() {
     if (isOpen) {
       closeBadgeMenu();
     } else {
+      // Captured here, not inside runBadgeAction() — by the time a menu
+      // item is clicked, this click (and that one) may have already
+      // collapsed whatever text selection was on the page.
+      capturedSelection = (window.getSelection().toString() || '').trim();
       wrap.classList.add('open');
     }
   });
@@ -690,37 +711,38 @@ function buildChipList(entries, kind) {
   return frag;
 }
 
-function renderScorePanel(panelEl, score, match) {
+function renderScorePanel(panelEl, score, match, sourceLabel) {
   let body;
   if (score === null) {
-    body = h('div', { class: 'empty-note' }, ['Not enough information to score this one — no matching keywords found in the captured description.']);
+    body = h('div', { class: 'empty-note' }, ['Not enough information to score this one — no matching keywords found.']);
   } else {
     const total = match.present.length + match.missing.length;
+    const scoreClass = score >= 70 ? 'good' : score >= 40 ? 'ok' : 'low';
     body = h('div', {}, [
-      h('div', { class: 'score-big' }, [`${score}%`]),
-      h('div', { class: 'score-label' }, [`match, based on ${total} keyword${total === 1 ? '' : 's'} found in this posting`]),
+      h('div', { class: `score-big ${scoreClass}` }, [`${score}%`]),
+      h('div', { class: 'score-label' }, [`match, based on ${total} keyword${total === 1 ? '' : 's'} found`]),
       h('div', { class: 'chip-section-title' }, ['Top gaps']),
       buildChipList(match.missing.slice(0, 5), 'missing')
     ]);
   }
-  renderPanelShell(panelEl, 'Fit score', body);
+  renderPanelShell(panelEl, 'Fit score', body, sourceLabel);
 }
 
-function renderTailorPanel(panelEl, match) {
+function renderTailorPanel(panelEl, match, sourceLabel) {
   const body = h('div', {}, [
     h('div', { class: 'chip-section-title' }, ['Already on your resume']),
     buildChipList(match.present, 'present'),
     h('div', { class: 'chip-section-title' }, ['Consider adding']),
     buildChipList(match.missing, 'missing')
   ]);
-  renderPanelShell(panelEl, 'Tailor my resume', body);
+  renderPanelShell(panelEl, 'Tailor my resume', body, sourceLabel);
 }
 
-function renderCoverPanel(panelEl, letter) {
+function renderCoverPanel(panelEl, letter, sourceLabel) {
   const textarea = h('textarea', { class: 'cover-letter', id: 'coverLetterText' }, []);
   textarea.value = letter;
   const copyBtn = h('button', { class: 'copy-btn', 'data-action': 'copy', type: 'button' }, ['Copy to clipboard']);
-  renderPanelShell(panelEl, 'Sample cover letter', h('div', {}, [textarea, copyBtn]), 'Standard tone — for other tones, use the Dashboard’s tools modal');
+  renderPanelShell(panelEl, 'Sample cover letter', h('div', {}, [textarea, copyBtn]), `${sourceLabel} · Standard tone`);
 }
 
 function getStoredResumeText() {
@@ -729,13 +751,23 @@ function getStoredResumeText() {
   });
 }
 
-// Runs one of the three badge-menu actions: extracts the current page's job
-// description on demand (not just at Apply-click time, so this works even
-// before you've clicked Apply), pulls your resume from shared extension
-// storage, and renders a result panel. On a page with multiple postings
-// visible at once (e.g. a split-pane search results view), this describes
-// whatever the page-wide extraction finds — the same scoping limitation
-// already documented for Handshake's DOM extraction.
+// Below this length, a selection is more likely a stray highlight than an
+// actual job description someone meant to scan.
+const MIN_SELECTION_LENGTH = 40;
+
+// Set when the badge menu opens (see wireBadgeMenu) rather than read live
+// inside runBadgeAction — by the time a menu item is actually clicked, that
+// click (and the one that opened the menu) may already have collapsed
+// whatever text selection was on the page.
+let capturedSelection = '';
+
+// Runs one of the three badge-menu actions. Prefers whatever text is
+// currently selected on the page over auto-extraction: on pages that show
+// multiple postings at once (search results, split panes), auto-extraction
+// can grab text from a different listing than the one you're looking at —
+// selecting the actual job description yourself removes that ambiguity
+// entirely. Falls back to the (now better-scoped) auto-extracted
+// description when nothing useful is selected.
 async function runBadgeAction(action) {
   const wrap = badgeShadow.getElementById('wrap');
   const panel = badgeShadow.getElementById('panel');
@@ -749,8 +781,14 @@ async function runBadgeAction(action) {
   } catch (err) {
     details = null;
   }
-  if (!details || !details.description) {
-    renderSimpleMessage(panel, 'No description found', 'Could not find a job description on this page to work from.');
+  details = details || {};
+
+  const usingSelection = capturedSelection.length >= MIN_SELECTION_LENGTH;
+  const description = usingSelection ? capturedSelection : details.description;
+  const sourceLabel = usingSelection ? 'Based on your selected text' : 'Based on the captured description';
+
+  if (!description) {
+    renderSimpleMessage(panel, 'No description found', 'Could not find a job description here — try highlighting the job description text on the page, then try again.');
     return;
   }
 
@@ -760,15 +798,15 @@ async function runBadgeAction(action) {
     return;
   }
 
-  const match = matchKeywords(details.description, resumeText);
+  const match = matchKeywords(description, resumeText);
 
   if (action === 'score') {
-    renderScorePanel(panel, computeFitScore(match), match);
+    renderScorePanel(panel, computeFitScore(match), match, sourceLabel);
   } else if (action === 'tailor') {
-    renderTailorPanel(panel, match);
+    renderTailorPanel(panel, match, sourceLabel);
   } else if (action === 'cover') {
     const letter = buildCoverLetterDraft(details, resumeText, match, 'standard');
-    renderCoverPanel(panel, letter);
+    renderCoverPanel(panel, letter, sourceLabel);
   }
 }
 

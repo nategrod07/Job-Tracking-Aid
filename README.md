@@ -110,10 +110,14 @@ Dashboard to get a read on a posting:
 - **✉️ Sample cover letter** — a draft in the Standard tone (for
   Enthusiastic/Concise, use the Dashboard's tools modal).
 
-All three need your resume saved first (📄 Resume, in the Dashboard) and a
-captured job description on the current page. On a page showing multiple
-postings at once (e.g. a split-pane search view), this works off whatever
-the page-wide extraction finds, same as elsewhere in this app.
+All three need your resume saved first (📄 Resume, in the Dashboard). For the
+description, **highlight the job description text on the page before
+clicking the badge** — on pages that show multiple postings at once (search
+results, split panes), this is the reliable way to make sure it's actually
+scanning the posting you're looking at, not a different one on the same
+page. No selection? It falls back to auto-detecting the description, same
+as elsewhere in this app — works fine on a single-posting page, just less
+certain on a page with several postings visible.
 
 ## Setup
 
