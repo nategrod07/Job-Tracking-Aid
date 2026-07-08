@@ -67,10 +67,17 @@ function extractDescription(siteName, jsonLdItem) {
   return candidates.reduce((a, b) => (b.length > a.length ? b : a)).slice(0, 20000);
 }
 
+// DOMParser rather than the classic "div.innerHTML = html; read textContent"
+// trick — sites that enforce a Trusted Types CSP (LinkedIn does) block any
+// plain-string assignment to innerHTML, from content scripts too, not just
+// page code, so that approach silently throws there and description
+// extraction fails. DOMParser.parseFromString is a separate API that was
+// deliberately left out of the Trusted Types restricted-sink list, since it
+// only parses a string into a detached document — it never injects
+// anything into the live page — so it works regardless of CSP.
 function stripHtml(html) {
-  const tmp = document.createElement('div');
-  tmp.innerHTML = html;
-  return (tmp.textContent || tmp.innerText || '').trim();
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return (doc.body?.textContent || '').trim();
 }
 
 function findJsonLdJobPosting() {
@@ -510,27 +517,55 @@ const BADGE_CSS = `
   .loading, .empty-note { color: #888; font-size: 12px; padding: 6px 0; }
 `;
 
+// Minimal DOM-builder helper. Everything in this section used to be built
+// via `el.innerHTML = templateString`, which is simpler to write — but
+// sites that enforce a Trusted Types CSP (LinkedIn does; see the comment on
+// stripHtml() above) block any plain-string assignment to innerHTML from
+// content scripts, not just page code, so that approach silently throws
+// there and the whole badge fails to render. createElement/textContent/
+// appendChild aren't restricted sinks under Trusted Types (they can't be
+// used for HTML injection in the first place), so building the DOM
+// programmatically works everywhere regardless of a site's CSP — this
+// isn't a LinkedIn-specific workaround, it's the version of this code that
+// was always going to be correct on an arbitrary third-party site.
+function h(tag, attrs, children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, v);
+  for (const child of children || []) {
+    if (child === null || child === undefined) continue;
+    el.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+  }
+  return el;
+}
+
+function clearNode(node) {
+  while (node.firstChild) node.removeChild(node.firstChild);
+}
+
 function ensureBadge() {
   if (badgeHost) return badgeHost;
 
   badgeHost = document.createElement('div');
   badgeHost.id = '__job-tracker-badge';
   badgeShadow = badgeHost.attachShadow({ mode: 'open' });
-  badgeShadow.innerHTML = `
-    <style>${BADGE_CSS}</style>
-    <div class="wrap" id="wrap">
-      <button class="pill" id="pillBtn" type="button">
-        <span id="pillText">● Job Tracker active</span>
-        <span class="chevron">▾</span>
-      </button>
-      <div class="menu" id="menu">
-        <button class="menu-item" data-action="score" type="button">🎯 Fit score</button>
-        <button class="menu-item" data-action="tailor" type="button">📝 Tailor my resume</button>
-        <button class="menu-item" data-action="cover" type="button">✉️ Sample cover letter</button>
-      </div>
-      <div class="panel" id="panel"></div>
-    </div>
-  `;
+
+  const styleEl = document.createElement('style');
+  styleEl.textContent = BADGE_CSS; // textContent, not innerHTML — always safe, never a Trusted Types sink
+
+  const pillBtn = h('button', { class: 'pill', id: 'pillBtn', type: 'button' }, [
+    h('span', { id: 'pillText' }, ['● Job Tracker active']),
+    h('span', { class: 'chevron' }, ['▾'])
+  ]);
+  const menu = h('div', { class: 'menu', id: 'menu' }, [
+    h('button', { class: 'menu-item', 'data-action': 'score', type: 'button' }, ['🎯 Fit score']),
+    h('button', { class: 'menu-item', 'data-action': 'tailor', type: 'button' }, ['📝 Tailor my resume']),
+    h('button', { class: 'menu-item', 'data-action': 'cover', type: 'button' }, ['✉️ Sample cover letter'])
+  ]);
+  const panel = h('div', { class: 'panel', id: 'panel' }, []);
+  const wrap = h('div', { class: 'wrap', id: 'wrap' }, [pillBtn, menu, panel]);
+
+  badgeShadow.appendChild(styleEl);
+  badgeShadow.appendChild(wrap);
   (document.body || document.documentElement).appendChild(badgeHost);
 
   wireBadgeMenu();
@@ -567,11 +602,6 @@ function flashBadge(jobTitle, company) {
 function closeBadgeMenu() {
   if (!badgeShadow) return;
   badgeShadow.getElementById('wrap').classList.remove('open', 'showing-panel');
-}
-
-function escapeHtmlBadge(v) {
-  if (v === null || v === undefined) return '';
-  return String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 function wireBadgeMenu() {
@@ -630,54 +660,67 @@ function wireBadgeMenu() {
   });
 }
 
-function renderPanelShell(title, bodyHtml, subtitle) {
-  return `
-    <div class="panel-header">
-      <div>
-        <h3 class="panel-title">${escapeHtmlBadge(title)}</h3>
-        ${subtitle ? `<div class="panel-subtitle">${escapeHtmlBadge(subtitle)}</div>` : ''}
-      </div>
-      <button class="panel-close" data-action="close" type="button">✕</button>
-    </div>
-    <div class="panel-body">${bodyHtml}</div>
-  `;
+function renderPanelShell(panelEl, title, bodyNode, subtitle) {
+  clearNode(panelEl);
+  const headerText = [h('h3', { class: 'panel-title' }, [title])];
+  if (subtitle) headerText.push(h('div', { class: 'panel-subtitle' }, [subtitle]));
+  const header = h('div', { class: 'panel-header' }, [
+    h('div', {}, headerText),
+    h('button', { class: 'panel-close', 'data-action': 'close', type: 'button' }, ['✕'])
+  ]);
+  panelEl.appendChild(header);
+  panelEl.appendChild(h('div', { class: 'panel-body' }, [bodyNode]));
 }
 
-function renderChipList(entries, kind) {
+function renderLoading(panelEl) {
+  clearNode(panelEl);
+  panelEl.appendChild(h('div', { class: 'loading' }, ['Loading…']));
+}
+
+function renderSimpleMessage(panelEl, title, message) {
+  renderPanelShell(panelEl, title, h('div', { class: 'empty-note' }, [message]));
+}
+
+function buildChipList(entries, kind) {
   if (!entries.length) {
-    return `<span class="empty-note">${kind === 'present' ? 'None detected' : 'None — nice work'}</span>`;
+    return h('span', { class: 'empty-note' }, [kind === 'present' ? 'None detected' : 'None — nice work']);
   }
-  return entries.map((e) => `<span class="chip ${kind}">${escapeHtmlBadge(e.keyword)}</span>`).join('');
+  const frag = document.createDocumentFragment();
+  for (const e of entries) frag.appendChild(h('span', { class: `chip ${kind}` }, [e.keyword]));
+  return frag;
 }
 
-function renderScorePanel(score, match) {
-  const body = score === null
-    ? '<div class="empty-note">Not enough information to score this one — no matching keywords found in the captured description.</div>'
-    : `
-      <div class="score-big">${score}%</div>
-      <div class="score-label">match, based on ${match.present.length + match.missing.length} keyword${match.present.length + match.missing.length === 1 ? '' : 's'} found in this posting</div>
-      <div class="chip-section-title">Top gaps</div>
-      ${renderChipList(match.missing.slice(0, 5), 'missing')}
-    `;
-  return renderPanelShell('Fit score', body);
+function renderScorePanel(panelEl, score, match) {
+  let body;
+  if (score === null) {
+    body = h('div', { class: 'empty-note' }, ['Not enough information to score this one — no matching keywords found in the captured description.']);
+  } else {
+    const total = match.present.length + match.missing.length;
+    body = h('div', {}, [
+      h('div', { class: 'score-big' }, [`${score}%`]),
+      h('div', { class: 'score-label' }, [`match, based on ${total} keyword${total === 1 ? '' : 's'} found in this posting`]),
+      h('div', { class: 'chip-section-title' }, ['Top gaps']),
+      buildChipList(match.missing.slice(0, 5), 'missing')
+    ]);
+  }
+  renderPanelShell(panelEl, 'Fit score', body);
 }
 
-function renderTailorPanel(match) {
-  const body = `
-    <div class="chip-section-title">Already on your resume</div>
-    ${renderChipList(match.present, 'present')}
-    <div class="chip-section-title">Consider adding</div>
-    ${renderChipList(match.missing, 'missing')}
-  `;
-  return renderPanelShell('Tailor my resume', body);
+function renderTailorPanel(panelEl, match) {
+  const body = h('div', {}, [
+    h('div', { class: 'chip-section-title' }, ['Already on your resume']),
+    buildChipList(match.present, 'present'),
+    h('div', { class: 'chip-section-title' }, ['Consider adding']),
+    buildChipList(match.missing, 'missing')
+  ]);
+  renderPanelShell(panelEl, 'Tailor my resume', body);
 }
 
-function renderCoverPanel(letter) {
-  const body = `
-    <textarea class="cover-letter" id="coverLetterText">${escapeHtmlBadge(letter)}</textarea>
-    <button class="copy-btn" data-action="copy" type="button">Copy to clipboard</button>
-  `;
-  return renderPanelShell('Sample cover letter', body, 'Standard tone — for other tones, use the Dashboard’s tools modal');
+function renderCoverPanel(panelEl, letter) {
+  const textarea = h('textarea', { class: 'cover-letter', id: 'coverLetterText' }, []);
+  textarea.value = letter;
+  const copyBtn = h('button', { class: 'copy-btn', 'data-action': 'copy', type: 'button' }, ['Copy to clipboard']);
+  renderPanelShell(panelEl, 'Sample cover letter', h('div', {}, [textarea, copyBtn]), 'Standard tone — for other tones, use the Dashboard’s tools modal');
 }
 
 function getStoredResumeText() {
@@ -698,7 +741,7 @@ async function runBadgeAction(action) {
   const panel = badgeShadow.getElementById('panel');
   wrap.classList.remove('open');
   wrap.classList.add('showing-panel');
-  panel.innerHTML = '<div class="loading">Loading…</div>';
+  renderLoading(panel);
 
   let details;
   try {
@@ -707,25 +750,25 @@ async function runBadgeAction(action) {
     details = null;
   }
   if (!details || !details.description) {
-    panel.innerHTML = renderPanelShell('No description found', '<div class="empty-note">Could not find a job description on this page to work from.</div>');
+    renderSimpleMessage(panel, 'No description found', 'Could not find a job description on this page to work from.');
     return;
   }
 
   const resumeText = await getStoredResumeText();
   if (!resumeText) {
-    panel.innerHTML = renderPanelShell('Resume needed', '<div class="empty-note">Add your resume in the Dashboard first (📄 Resume button), then try again.</div>');
+    renderSimpleMessage(panel, 'Resume needed', 'Add your resume in the Dashboard first (📄 Resume button), then try again.');
     return;
   }
 
   const match = matchKeywords(details.description, resumeText);
 
   if (action === 'score') {
-    panel.innerHTML = renderScorePanel(computeFitScore(match), match);
+    renderScorePanel(panel, computeFitScore(match), match);
   } else if (action === 'tailor') {
-    panel.innerHTML = renderTailorPanel(match);
+    renderTailorPanel(panel, match);
   } else if (action === 'cover') {
     const letter = buildCoverLetterDraft(details, resumeText, match, 'standard');
-    panel.innerHTML = renderCoverPanel(letter);
+    renderCoverPanel(panel, letter);
   }
 }
 

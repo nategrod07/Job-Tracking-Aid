@@ -67,11 +67,45 @@ const SKILL_DICTIONARY = [
   'Agile', 'Scrum', 'Kanban', 'Waterfall', 'Jira', 'Confluence', 'Project Management',
   'Stakeholder Management', 'Change Management', 'Six Sigma', 'Business Analysis',
   'Requirements Gathering', 'Risk Management', 'Budgeting', 'Forecasting', 'Cross-functional Collaboration',
+  'Strategic Planning', 'Process Improvement', 'Continuous Improvement', 'Budget Management',
+  'Operational Efficiency', 'Performance Management', 'Talent Management', 'Vendor Management',
+  'Contract Negotiation', 'Client Relationship Management', 'Account Management', 'Business Development',
+  'Competitive Analysis', 'Financial Modeling', 'P&L Management', 'Revenue Growth', 'Cost Reduction',
 
   // Sales & marketing
   'SEO', 'SEM', 'Google Analytics', 'Content Marketing', 'Email Marketing', 'Social Media Marketing',
   'CRM', 'Salesforce', 'HubSpot', 'Lead Generation', 'Digital Marketing', 'Brand Strategy',
-  'Copywriting', 'Market Research',
+  'Copywriting', 'Market Research', 'Brand Management', 'Campaign Management', 'Marketing Automation',
+  'Conversion Rate Optimization', 'Social Media Strategy', 'Influencer Marketing', 'Public Relations',
+  'Event Planning', 'Customer Retention', 'Client Onboarding', 'Point of Sale', 'Merchandising',
+  'Upselling', 'Cross-selling', 'Sales Forecasting', 'Pipeline Management', 'Cold Calling',
+
+  // Operations, supply chain & manufacturing
+  'Supply Chain Management', 'Inventory Management', 'Logistics', 'Procurement', 'Warehouse Management',
+  'Production Planning', 'Quality Control', 'Process Optimization', 'Safety Compliance', 'OSHA',
+  'Lean Manufacturing', 'Kaizen',
+
+  // Healthcare & clinical
+  'Patient Care', 'Clinical Research', 'Electronic Health Records', 'HIPAA Compliance', 'Medical Coding',
+  'Patient Advocacy', 'Nursing', 'Clinical Documentation', 'Healthcare Administration', 'Telehealth', 'RN',
+
+  // Finance & accounting
+  'Financial Analysis', 'Financial Reporting', 'Accounts Payable', 'Accounts Receivable', 'General Ledger',
+  'GAAP', 'Auditing', 'Tax Preparation', 'Bookkeeping', 'Financial Planning', 'Investment Analysis',
+  'Risk Assessment', 'Regulatory Compliance', 'Reconciliation',
+
+  // Legal
+  'Legal Research', 'Contract Review', 'Litigation', 'Compliance', 'Due Diligence', 'Legal Writing',
+  'Regulatory Affairs',
+
+  // Education & teaching
+  'Curriculum Development', 'Classroom Management', 'Lesson Planning', 'Student Assessment',
+  'Differentiated Instruction', 'Special Education', 'Instructional Design',
+
+  // Human resources & recruiting
+  'Talent Acquisition', 'Employee Relations', 'Onboarding', 'Performance Reviews',
+  'Compensation and Benefits', 'HRIS', 'Diversity and Inclusion', 'Employee Engagement',
+  'Succession Planning',
 
   // Business tools
   'Excel', 'PowerPoint', 'Word', 'SAP', 'NetSuite', 'QuickBooks', 'Tableau', 'Power BI', 'Looker',
@@ -83,9 +117,18 @@ const SKILL_DICTIONARY = [
   'Negotiation', 'Critical Thinking', 'Mentoring', 'Public Speaking', 'Customer Service',
   'Conflict Resolution', 'Decision Making', 'Emotional Intelligence',
 
+  // Resume/cover-letter impact verbs — distinctive enough to be a reliable
+  // signal on their own (unlike generic verbs such as "managed"/"led",
+  // which are already handled as Leadership/Project Management aliases
+  // below rather than standalone entries, since they're too common as
+  // plain English to be a useful independent signal).
+  'Spearheaded', 'Orchestrated', 'Streamlined', 'Optimized', 'Pioneered', 'Cultivated', 'Championed',
+  'Revamped', 'Overhauled', 'Transformed', 'Accelerated', 'Maximized', 'Facilitated', 'Consolidated',
+
   // Certifications & credentials
   'PMP', 'CPA', 'CFA', 'CISSP', 'ITIL', 'AWS Certified Solutions Architect', 'Certified Scrum Master',
-  'Six Sigma Black Belt', 'Google Analytics Certification'
+  'Six Sigma Black Belt', 'Google Analytics Certification', 'SHRM-CP', 'PHR', 'CompTIA',
+  'Lean Six Sigma', 'CFP'
 ];
 
 const SKILL_ALIASES = {
@@ -150,7 +193,7 @@ const STOPWORDS = new Set([
   // though it's often capitalized and repeated (e.g. in the title header).
   'software', 'engineering', 'engineer', 'intern', 'internship', 'responsibilities', 'requirements',
   'experience', 'environment', 'required', 'preferred', 'plus', 'strong', 'skills', 'qualifications',
-  'summary', 'description', 'about', 'join', 'looking', 'opportunity', 'candidate', 'candidates',
+  'summary', 'description', 'join', 'looking', 'opportunity', 'candidate', 'candidates',
   'ability', 'including', 'years', 'knowledge', 'proficiency', 'ideal', 'excellent', 'great', 'passion',
   'passionate',
   // Locations. The capitalized-token fallback below has no other way to
@@ -174,5 +217,25 @@ const STOPWORDS = new Set([
   'united', 'states', 'america', 'canada', 'kingdom', 'britain', 'england', 'ireland', 'germany',
   'france', 'spain', 'italy', 'netherlands', 'sweden', 'switzerland', 'australia', 'india', 'china',
   'japan', 'korea', 'singapore', 'brazil', 'zealand',
-  'area', 'region', 'metro', 'county', 'township', 'borough', 'city', 'state', 'district'
+  'area', 'region', 'metro', 'county', 'township', 'borough', 'city', 'state', 'district',
+  // Degrees/academia — almost always boilerplate ("Bachelor's degree in...",
+  // "Master's in...") rather than a skill in their own right. Not
+  // blocklisting specific credential acronyms like PhD/MBA here — those are
+  // a real, standalone signal the same way CPA/CFA are.
+  'bachelor', 'bachelors', 'master', 'masters', 'doctorate', 'university', 'college', 'degree',
+  'diploma', 'gpa', 'coursework', 'graduate', 'undergraduate', 'academic',
+  // Calendar terms — repeat constantly in deadlines/schedules, never a skill.
+  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+  'january', 'february', 'march', 'april', 'june', 'july', 'august', 'september', 'october',
+  'november', 'december', 'quarter', 'annual', 'annually', 'weekly', 'monthly', 'daily',
+  // EEO/legal boilerplate — nearly every US job posting repeats an Equal
+  // Employment Opportunity statement verbatim, and its vocabulary
+  // (protected-class terms, sponsorship/visa language) is real text that
+  // legitimately repeats 2+ times but is never a skill.
+  'equal', 'employer', 'disability', 'disabilities', 'veteran', 'status', 'race',
+  'religion', 'gender', 'sexual', 'orientation', 'national', 'origin', 'age', 'pregnancy', 'genetic',
+  'protected', 'employment', 'applicants', 'reasonable', 'accommodation', 'background', 'eligibility',
+  'sponsorship', 'visa', 'authorized', 'authorization', 'citizenship', 'identity', 'expression',
+  'harassment', 'discriminate', 'discrimination', 'ethnicity', 'characteristic', 'characteristics',
+  'compensation', 'benefits', 'insurance', 'dental', 'vision', 'pto', 'salary', 'wage', 'hourly'
 ]);
