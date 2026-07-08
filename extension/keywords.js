@@ -116,6 +116,29 @@ function extractKeywords(jobDescription) {
   return found;
 }
 
+// Pulls out "X years of experience" style phrases (e.g. "5+ years",
+// "3-5 years of experience", "3 to 5 years of Python experience"). This is
+// informational context about the posting's stated requirement, not a
+// present/missing skill — years-of-experience doesn't fit the "do I have
+// this or not" framing, so it's kept separate from extractKeywords/
+// matchKeywords rather than forced into that shape.
+function extractExperienceRequirements(jobDescription) {
+  const text = jobDescription || '';
+  const pattern = /\b\d{1,2}\s*(?:\+|-|–|to)?\s*\d{0,2}\+?\s*years?\b[^.]{0,40}?experience\b/gi;
+  const found = [];
+  const seen = new Set();
+  let m;
+  while ((m = pattern.exec(text)) && found.length < 5) {
+    const cleaned = m[0].replace(/\s+/g, ' ').trim();
+    const key = cleaned.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      found.push(cleaned);
+    }
+  }
+  return found;
+}
+
 const TIER_RANK = { High: 3, Medium: 2, Low: 1 };
 
 // Compares job-description keywords against resume text; returns which are

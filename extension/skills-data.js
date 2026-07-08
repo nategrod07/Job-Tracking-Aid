@@ -152,5 +152,27 @@ const STOPWORDS = new Set([
   'experience', 'environment', 'required', 'preferred', 'plus', 'strong', 'skills', 'qualifications',
   'summary', 'description', 'about', 'join', 'looking', 'opportunity', 'candidate', 'candidates',
   'ability', 'including', 'years', 'knowledge', 'proficiency', 'ideal', 'excellent', 'great', 'passion',
-  'passionate'
+  'passionate',
+  // Locations. The capitalized-token fallback below has no other way to
+  // tell "a place mentioned in the address/eligibility line" apart from "a
+  // skill" — both are just repeated capitalized words. This is a deny-list
+  // for the most common cases (US states, major cities, countries, generic
+  // geo terms), not a claim of full coverage of every place name that could
+  // ever appear.
+  'new', 'york', 'california', 'texas', 'florida', 'illinois', 'pennsylvania', 'ohio', 'georgia',
+  'michigan', 'carolina', 'north', 'south', 'virginia', 'washington', 'arizona', 'massachusetts',
+  'tennessee', 'indiana', 'missouri', 'maryland', 'wisconsin', 'colorado', 'minnesota', 'alabama',
+  'louisiana', 'kentucky', 'oregon', 'oklahoma', 'connecticut', 'utah', 'iowa', 'nevada', 'arkansas',
+  'mississippi', 'kansas', 'nebraska', 'idaho', 'hampshire', 'maine', 'montana', 'dakota', 'delaware',
+  'jersey', 'hawaii', 'alaska', 'vermont', 'wyoming', 'rhode', 'island', 'columbia', 'mexico',
+  'san', 'francisco', 'los', 'angeles', 'diego', 'jose', 'antonio', 'chicago', 'houston', 'phoenix',
+  'philadelphia', 'dallas', 'austin', 'jacksonville', 'columbus', 'charlotte', 'seattle', 'denver',
+  'boston', 'nashville', 'louisville', 'portland', 'memphis', 'detroit', 'baltimore', 'milwaukee',
+  'albuquerque', 'tucson', 'fresno', 'sacramento', 'mesa', 'atlanta', 'miami', 'raleigh', 'omaha',
+  'cleveland', 'tulsa', 'oakland', 'minneapolis', 'wichita', 'arlington', 'tampa', 'aurora', 'honolulu',
+  'anaheim', 'pittsburgh', 'cincinnati', 'orlando', 'vegas', 'brooklyn', 'manhattan', 'queens', 'bronx',
+  'united', 'states', 'america', 'canada', 'kingdom', 'britain', 'england', 'ireland', 'germany',
+  'france', 'spain', 'italy', 'netherlands', 'sweden', 'switzerland', 'australia', 'india', 'china',
+  'japan', 'korea', 'singapore', 'brazil', 'zealand',
+  'area', 'region', 'metro', 'county', 'township', 'borough', 'city', 'state', 'district'
 ]);

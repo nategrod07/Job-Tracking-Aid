@@ -89,6 +89,7 @@ const toolsSubtitle = document.getElementById('toolsSubtitle');
 const toolsNoResume = document.getElementById('toolsNoResume');
 const toolsNoDescription = document.getElementById('toolsNoDescription');
 const toolsOpenResumeBtn = document.getElementById('toolsOpenResumeBtn');
+const experienceInfo = document.getElementById('experienceInfo');
 const kwColumns = document.getElementById('kwColumns');
 const kwPresent = document.getElementById('kwPresent');
 const kwMissing = document.getElementById('kwMissing');
@@ -923,9 +924,18 @@ function openToolsModal(id) {
     kwColumns.style.display = 'flex';
     kwPresent.innerHTML = renderKeywordChips(toolsMatch.present, 'present');
     kwMissing.innerHTML = renderKeywordChips(toolsMatch.missing, 'missing');
+
+    const experienceMentions = extractExperienceRequirements(row.description);
+    if (experienceMentions.length) {
+      experienceInfo.style.display = 'block';
+      experienceInfo.textContent = `📅 Experience requested: ${experienceMentions.join(' · ')}`;
+    } else {
+      experienceInfo.style.display = 'none';
+    }
   } else {
     toolsMatch = { present: [], missing: [] };
     kwColumns.style.display = 'none';
+    experienceInfo.style.display = 'none';
   }
 
   regenerateCoverLetter();
